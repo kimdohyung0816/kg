@@ -1,9 +1,0 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
-안녕하세요
-=======
-hi
->>>>>>> parent of 8d9f2de (h)
-=======
-안녕하세요
->>>>>>> parent of d23cddd (no message)
