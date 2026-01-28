@@ -16,6 +16,13 @@ const ui = {
   scoreText: document.getElementById("scoreText"),
   fpsText: document.getElementById("fpsText"),
 
+  // wave/boss HUD
+  waveBanner: document.getElementById("waveBanner"),
+  bossBar: document.getElementById("bossBar"),
+  bossFill: document.getElementById("bossFill"),
+  bossName: document.getElementById("bossName"),
+  bossHpText: document.getElementById("bossHpText"),
+
   overlay: document.getElementById("overlay"),
   overlayTitle: document.getElementById("overlayTitle"),
   overlayDesc: document.getElementById("overlayDesc"),
@@ -38,6 +45,7 @@ const ui = {
 
   tutorialArea: document.getElementById("tutorialArea"),
   buildSummary: document.getElementById("buildSummary"),
+  buildPeek: document.getElementById("buildPeek"),
 
   btnStart: document.getElementById("btnStart"),
   btnResume: document.getElementById("btnResume"),
@@ -45,6 +53,8 @@ const ui = {
 
   // in-game quick HUD
   hudWeapons: document.getElementById("hudWeapons"),
+	skillDash: document.getElementById("skillDash"),
+	skillAegis: document.getElementById("skillAegis"),
   dashCdFill: document.getElementById("dashCdFill"),
   dashCdText: document.getElementById("dashCdText"),
   aegisCdFill: document.getElementById("aegisCdFill"),
@@ -53,6 +63,7 @@ const ui = {
   // reset confirm
   btnReset: document.getElementById("btnReset"),
   confirm: document.getElementById("confirm"),
+	confirmOverlay: document.getElementById("confirm"),
   confirmTitle: document.getElementById("confirmTitle"),
   confirmDesc: document.getElementById("confirmDesc"),
   confirmNo: document.getElementById("confirmNo"),

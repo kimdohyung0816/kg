@@ -19,6 +19,7 @@
 }
 
 *{box-sizing:border-box}
+.hidden{display:none !important;}
 html,body{
   margin:0;
   height:100%;
@@ -89,15 +90,68 @@ canvas{
   gap:10px;
 }
 
+/* boss bar */
+.bossBar{
+  margin-top:10px;
+  max-width:720px;
+  pointer-events:none;
+  padding:10px 12px;
+  background:linear-gradient(180deg, rgba(55,38,24,.92), rgba(24,18,13,.92));
+  border:var(--px) solid var(--line2);
+  outline:1px solid rgba(255,111,111,.28);
+  border-radius:var(--radius);
+  box-shadow:0 14px 0 rgba(0,0,0,.22), 0 16px 24px rgba(0,0,0,.35);
+}
+.bossTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.bossName{ font-weight:900; letter-spacing:1px; color:rgba(255,210,122,.95); text-shadow:0 2px 0 rgba(0,0,0,.65);} 
+.bossHp{ font-weight:900; color:rgba(255,246,232,.80); font-size:12px; }
+.bossTrack{
+  margin-top:8px;
+  height:12px;
+  background:rgba(0,0,0,.55);
+  border:var(--px) solid rgba(0,0,0,.85);
+  outline:1px solid rgba(255,111,111,.20);
+  border-radius:10px;
+  overflow:hidden;
+}
+.bossFill{
+  height:100%;
+  width:100%;
+  background:linear-gradient(90deg, rgba(255,111,111,.95), rgba(210,70,70,.95));
+}
+
+/* wave banner (center, non-blocking) */
+.waveBanner{
+  position:fixed;
+  left:50%;
+  top:18%;
+  transform:translate(-50%,-50%);
+  z-index:12;
+  padding:12px 16px;
+  border-radius:16px;
+  background:linear-gradient(180deg, rgba(35,26,19,.92), rgba(22,16,12,.92));
+  border:var(--px) solid rgba(0,0,0,.85);
+  outline:1px solid rgba(255,224,170,.22);
+  box-shadow:0 18px 0 rgba(0,0,0,.20), 0 22px 40px rgba(0,0,0,.38);
+  pointer-events:none;
+  font-weight:900;
+  letter-spacing:1px;
+  text-align:center;
+  text-shadow:0 3px 0 rgba(0,0,0,.70);
+}
+.waveBanner .main{ font-size:28px; color:rgba(255,246,232,.95);} 
+.waveBanner .sub{ margin-top:4px; font-size:12px; color:rgba(255,246,232,.72);} 
+
+
 /* bottom HUD docks (weapons left / skills right) */
 .hudDock{
   position:fixed;
-  bottom:14px;
+  bottom:18px;
   z-index:11;
   pointer-events:none;
 }
-.hudDock--left{ left:14px; }
-.hudDock--right{ right:14px; }
+.hudDock--left{ left:18px; }
+.hudDock--right{ right:18px; }
 
 .hudCard{
   padding:10px 12px;
@@ -138,14 +192,15 @@ canvas{
 }
 .wBtn.is-locked{ opacity:.35; filter: grayscale(.85); cursor:not-allowed; }
 .wBtn.is-active{
-  outline:2px solid rgba(122,168,255,.70);
+  background:linear-gradient(180deg, rgba(64,46,24,.95), rgba(34,22,12,.92));
+  outline:2px solid rgba(255,216,120,.85);
   box-shadow:0 0 0 3px rgba(0,0,0,.22) inset, 0 10px 18px rgba(0,0,0,.30);
-  transform: scale(1.12);
+  transform: scale(1.16);
 }
 .wBtn.is-active img{ filter: drop-shadow(0 2px 0 rgba(0,0,0,.65)) brightness(1.06); }
 
 /* skills dock */
-#hudSkillsDock .hudCard{ width:420px; padding:10px 12px; }
+#hudSkillsDock .hudCard{ width:360px; padding:10px 12px; }
 
 .skill{
   padding:8px 10px;
@@ -154,6 +209,13 @@ canvas{
   outline:1px solid rgba(255,224,170,.16);
   border-radius:14px;
   box-shadow:0 6px 0 rgba(0,0,0,.18);
+}
+.skill.is-ready{
+  outline:2px solid rgba(122,168,255,.35);
+}
+.skill.is-active{
+  outline:2px solid rgba(255,208,122,.55);
+  box-shadow:0 0 0 3px rgba(0,0,0,.22) inset, 0 10px 20px rgba(0,0,0,.34);
 }
 .skill + .skill{ margin-top:8px; }
 .skillTop{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
@@ -463,6 +525,36 @@ input[type="range"]{
   box-shadow:0 0 0 2px rgba(0,0,0,.55), 0 0 0 3px rgba(255,224,170,.18);
 }
 .card .t{ font-weight:900; margin-bottom:6px; }
+.card .head{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom:8px;
+}
+.card .cardIcon{
+  width:32px;
+  height:32px;
+  image-rendering: pixelated;
+  border-radius:10px;
+  border:1px solid rgba(0,0,0,.65);
+  outline:1px solid rgba(255,224,170,.16);
+  background:rgba(0,0,0,.22);
+  box-shadow:0 6px 0 rgba(0,0,0,.20);
+}
+.card .meta{ display:flex; flex-direction:column; gap:4px; min-width:0; }
+.card .t{ margin:0; }
+.card .delta{
+  display:inline-flex;
+  width:fit-content;
+  padding:4px 8px;
+  font-size:11px;
+  font-weight:900;
+  border-radius:999px;
+  border:1px solid rgba(255,224,170,.18);
+  background:rgba(0,0,0,.22);
+  color:rgba(255,246,232,.86);
+}
+
 .card .d{ font-size:12px; color:rgba(255,246,232,.78); line-height:1.35; }
 .card .tag{
   margin-top:8px;
@@ -604,4 +696,87 @@ input[type="range"]{
   .cards{ grid-template-columns: 1fr; }
   .build.is-show{ grid-template-columns: 1fr; }
   .bar .txt{ width:86px; }
+}
+
+
+/* quick build peek (Tab) */
+.buildPeek{
+  position:fixed;
+  left:18px;
+  bottom:104px;
+  z-index:12;
+  width:360px;
+  max-width:calc(100vw - 36px);
+  padding:12px 12px 10px;
+  background:linear-gradient(180deg, rgba(35,26,19,.92), rgba(22,16,12,.92));
+  border:var(--px) solid var(--line2);
+  outline:1px solid var(--line);
+  border-radius:var(--radius);
+  box-shadow:0 16px 26px rgba(0,0,0,.38);
+}
+.buildPeek.hidden{ display:none; }
+.buildPeek .rowTop{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:8px;
+}
+.buildPeek .ttl{
+  font-weight:1000;
+  letter-spacing:.3px;
+  color:rgba(255,246,232,.92);
+}
+.buildPeek .hint{
+  font-size:12px;
+  font-weight:900;
+  color:rgba(255,246,232,.65);
+}
+.buildPeek .list{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.buildPeek .up{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:10px;
+  padding:7px 9px;
+  border-radius:12px;
+  border:var(--px) solid rgba(0,0,0,.65);
+  outline:1px solid rgba(255,224,170,.10);
+  background:linear-gradient(180deg, rgba(44,34,26,.92), rgba(26,18,13,.92));
+}
+.buildPeek .left{
+  display:flex;
+  gap:8px;
+  align-items:baseline;
+  min-width:0;
+}
+.buildPeek .idx{
+  width:38px;
+  flex:0 0 38px;
+  font-weight:1000;
+  color:rgba(255,246,232,.55);
+}
+.buildPeek .name{
+  font-weight:950;
+  color:rgba(255,246,232,.90);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.buildPeek .lv{
+  font-weight:1000;
+  padding:2px 8px;
+  border-radius:999px;
+  background:rgba(0,0,0,.35);
+  border:1px solid rgba(255,224,170,.14);
+  color:rgba(255,246,232,.86);
+}
+.buildPeek .rar{
+  font-weight:1000;
+  font-size:12px;
+  opacity:.9;
 }

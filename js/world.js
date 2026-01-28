@@ -10,7 +10,30 @@ function norm(x, y) {
 }
 function rand(a = 0, b = 1) { return a + Math.random() * (b - a); }
 function randi(a, b) { return Math.floor(rand(a, b + 1)); }
+function pickWeighted(map) {
+  const entries = Object.entries(map || {});
+  let sum = 0;
+  for (const [,w] of entries) sum += Math.max(0, +w || 0);
+  if (sum <= 0) return null;
+  let r = Math.random() * sum;
+  for (const [k,w] of entries) {
+    r -= Math.max(0, +w || 0);
+    if (r <= 0) return k;
+  }
+  return entries[entries.length-1]?.[0] || null;
+}
 function now() { return performance.now(); }
+
+function escapeHTML(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (m) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  }[m]));
+}
+
 
 // localStorage meta
 const META_KEY = "PIXEL_DUNGEON_META_V3";
@@ -422,6 +445,14 @@ class Enemy {
       this.summonCd = 2.8;
       this.teleCd = 4.2;
       this.shootCd = 0.45;
+      // telegraph preps
+      this.ringPrep = 0;
+      this.shootPrep = 0;
+      this.telePrep = 0;
+      this.summonPrep = 0;
+      this._ringBase = 0;
+      this._teleTarget = null;
+      this._aim = null;
     } else { // boss
       this.r = 34;
       this.maxHp = 1100 + wave * 160 + bonus * 200;
@@ -429,14 +460,62 @@ class Enemy {
       this.speed = 72 + wave * 1.5;
       this.phase = 0;
       this.shootCd = 0.65;
+      this.slamCd = rand(2.4, 3.6);
+      this.slamPrep = 0;
+      this.shootPrep = 0;
+      this._aim = null;
+      // legacy var (unused but kept)
       this.chargeCd = 2.2;
     }
 
     this.hp = this.maxHp;
   }
 
-  hit(game, dmg) {
-    this.hp -= dmg;
+  hit(game, dmg, srcWeapon = null) {
+    let final = dmg;
+    const w = String(srcWeapon || "");
+    if (w) {
+      const k = this.kind;
+        // Weapon situational multipliers: encourages switching (Step8 tuning)
+  const mult = (() => {
+    // Bosses: crossbow best single-target, shotgun poor vs thick HP
+    if (k === "boss" || k === "boss2") {
+      if (w === "shotgun") return 0.55;
+      if (w === "pistol") return 0.85;
+      if (w === "rail") return 0.75;
+      if (w === "crossbow") return 1.25;
+    }
+    // Gunners: dangerous at range -> crossbow/rail are better, shotgun struggles
+    if (k === "gunner") {
+      if (w === "pistol") return 0.75;
+      if (w === "shotgun") return 0.55;
+      if (w === "rail") return 1.10;
+      if (w === "crossbow") return 1.20;
+    }
+    // Bombers: rail is good at popping groups safely
+    if (k === "bomber") {
+      if (w === "rail") return 1.10;
+      if (w === "shotgun") return 0.80;
+      if (w === "crossbow") return 0.95;
+    }
+    // Chargers: shotgun is the "panic" weapon, rail can miss value
+    if (k === "charger") {
+      if (w === "shotgun") return 1.20;
+      if (w === "rail") return 0.80;
+      if (w === "crossbow") return 1.05;
+    }
+    // Chasers (default melee swarm): shotgun shines, rail is less efficient
+    if (k === "chaser") {
+      if (w === "shotgun") return 1.15;
+      if (w === "rail") return 0.85;
+      if (w === "crossbow") return 0.95;
+    }
+    return 1;
+  })();
+  final = Math.max(1, Math.floor(final * mult));
+}
+
+    this.hp -= final;
     this.hitFlash = 0.10;
     if (this.hp <= 0) game.killEnemy(this);
   }
@@ -503,7 +582,7 @@ class Enemy {
         for (const e of game.enemies) {
           if (e === this) continue;
           const dd = Math.hypot(e.x - this.x, e.y - this.y);
-          if (dd < R) e.hit(game, 55);
+          if (dd < R) e.hit(game, 55, 'rail');
         }
         if (d < R) game.damagePlayer(24);
         game.spawnHit(this.x, this.y, 30);
@@ -515,54 +594,78 @@ class Enemy {
     }
 
     if (this.kind === "boss") {
-      // phase behavior: alternating
-      this.chargeCd -= dt;
-      this.shootCd -= dt;
-
-      // move slowly towards player but orbit a bit
-      const wob = Math.sin(this.t * 0.7) * 0.6;
-      const tx = nx * this.speed + (-ny) * this.speed * 0.55 * wob;
-      const ty = ny * this.speed + (nx) * this.speed * 0.55 * wob;
-      this.vx = lerp(this.vx, tx, clamp(4.5 * dt, 0, 1));
-      this.vy = lerp(this.vy, ty, clamp(4.5 * dt, 0, 1));
-
-      if (this.shootCd <= 0 && d < 650) {
-        this.shootCd = 0.55;
-        // 3-shot spread
-        const base = Math.atan2(dy, dx);
-        for (let i = -1; i <= 1; i++) {
-          const a = base + i * 0.20;
-          const vx = Math.cos(a) * 420;
-          const vy = Math.sin(a) * 420;
-          const dmg = Math.floor(13 * (game.diff?.enemyDmgMult || 1));
-          game.enemyBullets.push(new Bullet(this.x, this.y, vx, vy, dmg, 0, 4.6, "enemy"));
-        }
-        game.audio.play("bossShot", 260, 0.07, "square", 0.07, 0.10);
+      // Approach player
+      if (d > 120) {
+        this.vx = (dx / d) * this.speed;
+        this.vy = (dy / d) * this.speed;
+      } else {
+        this.vx *= 0.88;
+        this.vy *= 0.88;
       }
 
-      if (this.chargeCd <= 0 && d < 520) {
-        this.chargeCd = 2.1;
-        // shockwave
-        const R = 180;
-        for (const e of game.enemies) {
-          if (e === this) continue;
-          const dd = Math.hypot(e.x - this.x, e.y - this.y);
-          if (dd < R) e.hit(game, 70);
+      // slam telegraph -> slam
+      if (this.slamPrep > 0) {
+        this.slamPrep -= dt;
+        if (this.slamPrep <= 0) {
+          // slam
+          game.camera.kick(10);
+          game.audio.play("slam", 140, 0.12, "square", 0.08, 0.10);
+          for (let i = 0; i < 22; i++) {
+            const a = rand(0, Math.PI * 2);
+            const sp = rand(80, 220);
+            game.particles.push(new Particle(this.x, this.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.7, rand(2.0, 3.4), "rgba(210,177,106,.88)"));
+          }
+          // damage wave
+          if (d < 170) game.player.hit(game, 28);
+          this.slamCd = rand(5.2, 6.8);
         }
-        if (d < R) game.damagePlayer(28);
-        game.spawnHit(this.x, this.y, 42);
-        game.camera.kick(10);
-        game.audio.play("slam", 140, 0.12, "sawtooth", 0.10, 0.15);
+      } else {
+        this.slamCd -= dt;
+        if (this.slamCd <= 0 && d < 170) {
+          this.slamPrep = 0.55;
+          // warning circle
+          (game.telegraphs || (game.telegraphs = [])).push(new TelegraphCircleFX(this.x, this.y, 170, 0.55, "rgba(255,111,111,.80)"));
+          // lock a bit
+          this.vx *= 0.4; this.vy *= 0.4;
+        }
       }
+
+      // shoot telegraph -> shoot
+      if (this.shootPrep > 0) {
+        this.shootPrep -= dt;
+        if (this.shootPrep <= 0 && this._aim) {
+          const ang = this._aim;
+          const shots = 3;
+          for (let i = 0; i < shots; i++) {
+            const a = ang + (i - 1) * 0.12;
+            const vx = Math.cos(a) * 340;
+            const vy = Math.sin(a) * 340;
+            game.enemyBullets.push(new Bullet(this.x, this.y, vx, vy, 16, 0, 6, "enemy", { life: 1.4 }));
+          }
+          game.audio.play("bossShot", 210, 0.08, "square", 0.06, 0.05);
+          this.shootCd = rand(0.95, 1.35);
+          this._aim = null;
+        }
+      } else {
+        this.shootCd -= dt;
+        if (this.shootCd <= 0 && d < 620) {
+          this._aim = Math.atan2(dy, dx);
+          const len = 520;
+          const bx = this.x + Math.cos(this._aim) * len;
+          const by = this.y + Math.sin(this._aim) * len;
+          (game.telegraphs || (game.telegraphs = [])).push(new TelegraphLineFX(this.x, this.y, bx, by, 6, 0.35, "rgba(255,111,111,.95)"));
+          this.shootPrep = 0.35;
+        }
+      }
+
+      this.x += this.vx * dt;
+      this.y += this.vy * dt;
+      return;
     }
 
-    if (this.kind === "boss2") {
-      // FINAL BOSS: ring shots + summon + teleport
-      this.ringCd -= dt;
-      this.summonCd -= dt;
-      this.teleCd -= dt;
-      this.shootCd -= dt;
 
+    if (this.kind === "boss2") {
+      // FINAL BOSS (telegraphed): ring + bolts + summon + blink
       // keep some distance and strafe around player
       const desired = clamp((d - 320) / 220, -1, 1);
       const wob = Math.sin(this.t * 0.9) * 0.9;
@@ -571,62 +674,118 @@ class Enemy {
       this.vx = lerp(this.vx, tx, clamp(4.2 * dt, 0, 1));
       this.vy = lerp(this.vy, ty, clamp(4.2 * dt, 0, 1));
 
-      if (this.ringCd <= 0) {
-        this.ringCd = 1.05;
-        const n = 10;
-        const base = Math.atan2(dy, dx);
-        for (let i = 0; i < n; i++) {
-          const a = base + (i / n) * Math.PI * 2;
-          const vx = Math.cos(a) * 360;
-          const vy = Math.sin(a) * 360;
-          const dmg = Math.floor(14 * (game.diff?.enemyDmgMult || 1));
-          game.enemyBullets.push(new Bullet(this.x, this.y, vx, vy, dmg, 0, 4.4, "enemy"));
+      // ring telegraph -> ring
+      if (this.ringPrep > 0) {
+        this.ringPrep -= dt;
+        if (this.ringPrep <= 0) {
+          const n = 10;
+          const base = this._ringBase;
+          for (let i = 0; i < n; i++) {
+            const a = base + (i / n) * Math.PI * 2;
+            const vx = Math.cos(a) * 360;
+            const vy = Math.sin(a) * 360;
+            const dmg = Math.floor(14 * (game.diff?.enemyDmgMult || 1));
+            game.enemyBullets.push(new Bullet(this.x, this.y, vx, vy, dmg, 0, 4.4, "enemy"));
+          }
+          game.audio.play("bossRing", 180, 0.09, "triangle", 0.08, 0.12);
+          this.ringCd = 1.05;
         }
-        game.audio.play("bossRing", 180, 0.09, "triangle", 0.08, 0.12);
+      } else {
+        this.ringCd -= dt;
+        if (this.ringCd <= 0) {
+          this._ringBase = Math.atan2(dy, dx);
+          (game.telegraphs || (game.telegraphs = [])).push(new TelegraphCircleFX(this.x, this.y, 160, 0.50, "rgba(255,111,111,.65)"));
+          this.ringPrep = 0.50;
+          this.ringCd = 999;
+        }
       }
 
-      if (this.shootCd <= 0 && d < 720) {
-        this.shootCd = 0.55;
-        // 2 aimed bolts
-        const a = Math.atan2(dy, dx);
-        for (let i = -1; i <= 1; i += 2) {
-          const aa = a + i * 0.08;
-          const vx = Math.cos(aa) * 520;
-          const vy = Math.sin(aa) * 520;
-          const dmg = Math.floor(17 * (game.diff?.enemyDmgMult || 1));
-          game.enemyBullets.push(new Bullet(this.x, this.y, vx, vy, dmg, 0, 5.0, "enemy"));
+      // bolts telegraph -> bolts
+      if (this.shootPrep > 0) {
+        this.shootPrep -= dt;
+        if (this.shootPrep <= 0 && this._aim !== null) {
+          const a = this._aim;
+          for (let i = -1; i <= 1; i += 2) {
+            const aa = a + i * 0.08;
+            const vx = Math.cos(aa) * 520;
+            const vy = Math.sin(aa) * 520;
+            const dmg = Math.floor(17 * (game.diff?.enemyDmgMult || 1));
+            game.enemyBullets.push(new Bullet(this.x, this.y, vx, vy, dmg, 0, 5.0, "enemy"));
+          }
+          this._aim = null;
+          this.shootCd = 0.55;
+        }
+      } else {
+        this.shootCd -= dt;
+        if (this.shootCd <= 0 && d < 720) {
+          this._aim = Math.atan2(dy, dx);
+          const len = 640;
+          const bx = this.x + Math.cos(this._aim) * len;
+          const by = this.y + Math.sin(this._aim) * len;
+          (game.telegraphs || (game.telegraphs = [])).push(new TelegraphLineFX(this.x, this.y, bx, by, 5, 0.32, "rgba(255,111,111,.95)"));
+          const bx2 = this.x + Math.cos(this._aim + 0.08) * len;
+          const by2 = this.y + Math.sin(this._aim + 0.08) * len;
+          (game.telegraphs || (game.telegraphs = [])).push(new TelegraphLineFX(this.x, this.y, bx2, by2, 4, 0.32, "rgba(255,111,111,.70)"));
+          this.shootPrep = 0.32;
+          this.shootCd = 999;
         }
       }
 
-      if (this.summonCd <= 0) {
-        this.summonCd = 2.65;
-        for (let i = 0; i < 2; i++) {
-          const a = rand(0, Math.PI * 2);
-          const rx = this.x + Math.cos(a) * rand(46, 78);
-          const ry = this.y + Math.sin(a) * rand(46, 78);
-          game.spawnEnemyAt("chaser", rx, ry);
+      // summon telegraph -> summon
+      if (this.summonPrep > 0) {
+        this.summonPrep -= dt;
+        if (this.summonPrep <= 0) {
+          for (let i = 0; i < 2; i++) {
+            const a = rand(0, Math.PI * 2);
+            const rx = this.x + Math.cos(a) * rand(46, 78);
+            const ry = this.y + Math.sin(a) * rand(46, 78);
+            game.spawnEnemyAt("chaser", rx, ry);
+          }
+          game.floaters.push(new Floater(this.x - 42, this.y - this.r - 24, "SUMMON", 0.75, "rgba(210,177,106,.95)"));
+          this.summonCd = 2.65;
         }
-        game.floaters.push(new Floater(this.x - 42, this.y - this.r - 24, "SUMMON", 0.75, "rgba(210,177,106,.95)"));
+      } else {
+        this.summonCd -= dt;
+        if (this.summonCd <= 0) {
+          (game.telegraphs || (game.telegraphs = [])).push(new TelegraphCircleFX(this.x, this.y, 120, 0.45, "rgba(210,177,106,.55)"));
+          this.summonPrep = 0.45;
+          this.summonCd = 999;
+        }
       }
 
-      if (this.teleCd <= 0) {
-        this.teleCd = 4.6;
-        // blink behind player (safe within arena)
-        const a = Math.atan2(-dy, -dx);
-        const nx2 = Math.cos(a), ny2 = Math.sin(a);
-        const tx = p.x + nx2 * 260;
-        const ty = p.y + ny2 * 260;
-        const ar = game.arena;
-        const ddx = tx - ar.x, ddy = ty - ar.y;
-        const dist = Math.hypot(ddx, ddy) || 1;
-        const limit = ar.r - this.r - 10;
-        const fx = dist > limit ? (ar.x + ddx / dist * limit) : tx;
-        const fy = dist > limit ? (ar.y + ddy / dist * limit) : ty;
-        game.spawnHit(this.x, this.y, 26);
-        this.x = fx; this.y = fy;
-        this.vx = 0; this.vy = 0;
-        game.spawnHit(this.x, this.y, 26);
-        game.audio.play("tele", 720, 0.07, "sine", 0.05, 0.08);
+      // teleport telegraph destination -> blink
+      if (this.telePrep > 0) {
+        this.telePrep -= dt;
+        if (this.telePrep <= 0 && this._teleTarget) {
+          const { fx, fy } = this._teleTarget;
+          game.spawnHit(this.x, this.y, 26);
+          this.x = fx; this.y = fy;
+          this.vx = 0; this.vy = 0;
+          game.spawnHit(this.x, this.y, 26);
+          game.audio.play("tele", 720, 0.07, "sine", 0.05, 0.08);
+          this._teleTarget = null;
+          this.teleCd = 4.6;
+        }
+      } else {
+        this.teleCd -= dt;
+        if (this.teleCd <= 0) {
+          // blink behind player (safe within arena)
+          const a = Math.atan2(-dy, -dx);
+          const nx2 = Math.cos(a), ny2 = Math.sin(a);
+          const tx2 = p.x + nx2 * 260;
+          const ty2 = p.y + ny2 * 260;
+          const ar2 = game.arena;
+          const ddx2 = tx2 - ar2.x, ddy2 = ty2 - ar2.y;
+          const dist2 = Math.hypot(ddx2, ddy2) || 1;
+          const limit2 = ar2.r - this.r - 10;
+          const fx = dist2 > limit2 ? (ar2.x + ddx2 / dist2 * limit2) : tx2;
+          const fy = dist2 > limit2 ? (ar2.y + ddy2 / dist2 * limit2) : ty2;
+
+          (game.telegraphs || (game.telegraphs = [])).push(new TelegraphCircleFX(fx, fy, 28, 0.45, "rgba(255,210,122,.70)"));
+          this._teleTarget = { fx, fy };
+          this.telePrep = 0.45;
+          this.teleCd = 999;
+        }
       }
     }
 
@@ -710,16 +869,16 @@ class Player {
     this.accel = 12.0;
 
     this.stats = {
-      damage: 20,
+      damage: 16,
       // fireRate is a multiplier (x1.00 = baseline)
       fireRate: 1.0,
-      bulletSpeed: 540,
+      bulletSpeed: 500,
       spread: 0.035,
       pierce: 0,
       bulletSize: 4.2,
 
-      critChance: 0.08,
-      critMult: 1.65,
+      critChance: 0.05,
+      critMult: 1.50,
 
       magnetMult: 1.0,
       xpMult: 1.0,
@@ -730,9 +889,9 @@ class Player {
       // Aegis duration (seconds)
       aegisDur: 2.0,
 
-      pellets: 5,
-      shotgunSpread: 0.22,
-      railWidth: 10,
+      pellets: 4,
+      shotgunSpread: 0.25,
+      railWidth: 9,
 
       // orbiting orbs
       orbs: 0,
@@ -764,7 +923,13 @@ class Player {
   }
 
   hasWeapon(name) { return this.weapons.has(String(name)); }
-  unlockWeapon(name) { this.weapons.add(String(name)); }
+  // returns true only when it was newly unlocked
+  unlockWeapon(name) {
+    const k = String(name);
+    const had = this.weapons.has(k);
+    this.weapons.add(k);
+    return !had;
+  }
   setWeapon(name) {
     const n = String(name);
     if (this.weapons.has(n)) this.weapon = n;
@@ -889,15 +1054,18 @@ class Player {
   }
 
   fireInterval() {
-    const st = this.stats;
-    const fr = Math.max(0.1, st.fireRate || 1);
-    // weapon balance: pistol = stable, shotgun = close burst, rail = line clear (slow), crossbow = boss DPS (slow)
-    if (this.weapon === "shotgun") return 0.72 / fr;
-    if (this.weapon === "crossbow") return 0.62 / (fr * (st.xbowRate || 1));
-    if (this.weapon === "rail") return 0.95 / fr;
-    // pistol default
-    return 0.16 / fr;
-  }
+  const st = this.stats;
+  const fr = Math.max(0.1, st.fireRate || 1);
+  // Step8 balance pass:
+  // - pistol: baseline
+  // - shotgun: close-range burst (slower)
+  // - rail: line clear (slowest)
+  // - crossbow: boss DPS (slow)
+  if (this.weapon === "shotgun") return 0.90 / fr;
+  if (this.weapon === "crossbow") return 0.86 / (fr * (st.xbowRate || 1));
+  if (this.weapon === "rail") return 1.25 / fr;
+  return 0.22 / fr; // pistol default
+}
 
   shoot(game, ang) {
     const st = this.stats;
@@ -914,7 +1082,7 @@ class Player {
       const a = ang + rand(-spread, spread);
       const vx = Math.cos(a) * speed;
       const vy = Math.sin(a) * speed;
-      game.bullets.push(new Bullet(this.x, this.y, vx, vy, dmg, pierce, r, "player"));
+      game.bullets.push(new Bullet(this.x, this.y, vx, vy, dmg, pierce, r, "player", { weapon: this.weapon }));
       game.audio.play("shot", 520, 0.04, "square", 0.05, 0.02);
       if (crit) game.audio.play("crit", 860, 0.05, "triangle", 0.05, 0.05);
       return;
@@ -928,7 +1096,7 @@ class Player {
         const a = ang + rand(-sp, sp);
         const vx = Math.cos(a) * (speed * rand(0.78, 0.92));
         const vy = Math.sin(a) * (speed * rand(0.78, 0.92));
-        game.bullets.push(new Bullet(this.x, this.y, vx, vy, Math.floor(dmg * 0.45), pierce, r * 0.90, "player", { life: 0.55 }));
+        game.bullets.push(new Bullet(this.x, this.y, vx, vy, Math.floor(dmg * 0.38), pierce, r * 0.90, "player", { life: 0.55, weapon: this.weapon }));
       }
       game.audio.play("shotgun", 260, 0.06, "square", 0.08, 0.06);
       return;
@@ -944,7 +1112,7 @@ class Player {
         const vx = Math.cos(a) * (speed * 1.02);
         const vy = Math.sin(a) * (speed * 1.02);
         // High single-target, slow rate: good vs bosses, not a room sweeper
-        game.bullets.push(new Bullet(this.x, this.y, vx, vy, Math.floor(dmg * 1.20), boltPierce, r * 1.05, "player", { bolt: true, life: 2.0 }));
+        game.bullets.push(new Bullet(this.x, this.y, vx, vy, Math.floor(dmg * 1.10), boltPierce, r * 1.05, "player", { bolt: true, life: 2.0, weapon: this.weapon }));
       }
       game.camera.kick(3);
       game.audio.play("crossbow", 330, 0.07, "sawtooth", 0.06, 0.06);
@@ -953,7 +1121,7 @@ class Player {
 
     if (this.weapon === "rail") {
       // instant beam damage on line
-      const len = 720;
+      const len = 660;
       const bx = this.x + Math.cos(ang) * len;
       const by = this.y + Math.sin(ang) * len;
       const width = Math.max(6, st.railWidth || 10);
@@ -963,11 +1131,13 @@ class Player {
         const distSq = distToSegmentSq(e.x, e.y, this.x, this.y, bx, by);
         if (distSq < (e.r + width) * (e.r + width)) {
           // Line clear (slow): reduced per-hit multiplier to prevent being OP
-          e.hit(game, Math.floor(dmg * 1.05));
+          e.hit(game, Math.floor(dmg * 0.85));
         }
       }
 
-      game.beams.push(new BeamFX(this.x, this.y, bx, by, width, 0.09));
+      // beam FX: core + afterimage
+      game.beams.push(new BeamFX(this.x, this.y, bx, by, width, 0.11));
+      game.beams.push(new BeamFX(this.x, this.y, bx, by, width * 1.7, 0.18));
       game.camera.kick(5);
       game.audio.play("rail", 980, 0.07, "triangle", 0.07, 0.10);
       return;
@@ -1033,6 +1203,32 @@ function distToSegmentSq(px, py, ax, ay, bx, by) {
    Game
    ========================= */
 const MAX_WAVE = 10;
+
+// Spawn plans (non-boss waves). Boss waves are 5 and 10.
+// Goal: make later waves meaningfully harder and enforce weapon switching.
+const WAVE_PLAN = {
+  1: { count: 14, rate: 0.22, weights: { chaser: 10 } },
+  2: { count: 18, rate: 0.21, weights: { chaser: 10, charger: 3 } },
+  3: { count: 22, rate: 0.20, weights: { chaser: 9, charger: 5, gunner: 2 } },
+  4: { count: 26, rate: 0.19, weights: { chaser: 7, charger: 5, gunner: 4, bomber: 2 } },
+  6: { count: 30, rate: 0.18, weights: { chaser: 5, charger: 6, gunner: 5, bomber: 4 } },
+  7: { count: 34, rate: 0.17, weights: { chaser: 4, charger: 6, gunner: 6, bomber: 6 } },
+  8: { count: 38, rate: 0.16, weights: { chaser: 3, charger: 6, gunner: 7, bomber: 7 } },
+  9: { count: 42, rate: 0.15, weights: { chaser: 2, charger: 6, gunner: 8, bomber: 8 } },
+};
+
+function isBossWaveN(w) { return (w === 5 || w === 10); }
+function getWaveConfig(w, diff) {
+  if (isBossWaveN(w)) return null;
+  const base = WAVE_PLAN[w] || WAVE_PLAN[1];
+  const spawnIntervalMult = (diff?.spawnIntervalMult || 1);
+  return {
+    count: Math.floor(base.count * (diff?.key === "easy" ? 0.92 : (diff?.key === "hard" ? 1.22 : 1.0))),
+    rate: Math.max(0.065, base.rate * spawnIntervalMult),
+    weights: base.weights,
+  };
+}
+
 export class Game {
   constructor(canvas) {
     this.canvas = canvas;
@@ -1047,22 +1243,22 @@ export class Game {
     // pixel sprite pack (optional fallbacks)
     this.assets = {
       ui: {
-        pistol: loadImg("../assets/ui/icon_pistol.svg"),
-        shotgun: loadImg("../assets/ui/icon_shotgun.svg"),
-        rail: loadImg("../assets/ui/icon_rail.svg"),
-        crossbow: loadImg("../assets/ui/icon_crossbow.svg"),
+        pistol: loadImg("../assets/ui/icon_pistol.png"),
+        shotgun: loadImg("../assets/ui/icon_shotgun.png"),
+        rail: loadImg("../assets/ui/icon_rail.png"),
+        crossbow: loadImg("../assets/ui/icon_crossbow.png"),
       },
       sprite: {
-        player: loadImg("../assets/sprites/player.svg"),
-        chaser: loadImg("../assets/sprites/enemy_chaser.svg"),
-        charger: loadImg("../assets/sprites/enemy_charger.svg"),
-        gunner: loadImg("../assets/sprites/enemy_gunner.svg"),
-        bomber: loadImg("../assets/sprites/enemy_bomber.svg"),
-        boss: loadImg("../assets/sprites/boss1.svg"),
-        boss2: loadImg("../assets/sprites/boss2.svg"),
-        xp: loadImg("../assets/sprites/pickup_xp.svg"),
-        hp: loadImg("../assets/sprites/pickup_hp.svg"),
-        sh: loadImg("../assets/sprites/pickup_sh.svg"),
+        player: loadImg("../assets/sprites/player.png"),
+        chaser: loadImg("../assets/sprites/enemy_chaser.png"),
+        charger: loadImg("../assets/sprites/enemy_charger.png"),
+        gunner: loadImg("../assets/sprites/enemy_gunner.png"),
+        bomber: loadImg("../assets/sprites/enemy_bomber.png"),
+        boss: loadImg("../assets/sprites/boss1.png"),
+        boss2: loadImg("../assets/sprites/boss2.png"),
+        xp: loadImg("../assets/sprites/pickup_xp.png"),
+        hp: loadImg("../assets/sprites/pickup_hp.png"),
+        sh: loadImg("../assets/sprites/pickup_sh.png"),
       }
     };
 
@@ -1074,13 +1270,27 @@ export class Game {
     this.fps = 0;
 
     this.ui = null;
+    this.buildPeekOpen = false;
 
     this.meta = loadMeta() || defaultMeta();
     this.diff = diffProfile(this.meta.lastDiff);
 
+	  // meta 저장을 매 프레임 하지 않도록(성능/수명) - 누적 후 주기적으로 저장
+	  this._metaDirty = false;
+	  this._metaSaveAcc = 0;
+
     this.reset();
     this._bindGlobalKeys();
   }
+
+	// 무기 해금/중요 이벤트를 화면에 깔끔하게 표시
+	notifyWeaponUnlocked(weaponKey) {
+	  const name = String(weaponKey);
+	  const label = (name === "shotgun") ? "SHOTGUN" : (name === "rail") ? "RAIL BEAM" : (name === "crossbow") ? "CROSSBOW" : name.toUpperCase();
+	  this.floaters.push(new Floater(this.player.x, this.player.y - 28, `UNLOCKED: ${label}`, 1.0, "rgba(122,168,255,.95)"));
+	  this.camera.kick(6);
+	  this.audio.play("unlock", 680, 0.08, "triangle", 0.07, 0.10);
+	}
 
   bindUI(ui) {
     this.ui = ui;
@@ -1089,20 +1299,21 @@ export class Game {
     ui.btnResume.addEventListener("click", () => this.closeOverlay());
     ui.btnRestart.addEventListener("click", () => { this.reset(); this.openMenu(); });
 
-    // full reset (clear progress)
-    if (ui.btnReset && ui.confirmOverlay && ui.confirmYes && ui.confirmNo) {
+	    // full reset (clear progress)
+	    const confirmOverlay = ui.confirmOverlay || ui.confirm;
+	    if (ui.btnReset && confirmOverlay && ui.confirmYes && ui.confirmNo) {
       const openConfirm = () => {
         this.audio.resume();
-        ui.confirmOverlay.hidden = false;
+	        confirmOverlay.hidden = false;
         this.audio.play("click", 240, 0.06, "square", 0.03, 0.04);
       };
       const closeConfirm = () => {
-        ui.confirmOverlay.hidden = true;
+	        confirmOverlay.hidden = true;
       };
       ui.btnReset.addEventListener("click", openConfirm);
       ui.confirmNo.addEventListener("click", () => { closeConfirm(); this.audio.play("click", 220, 0.05, "square", 0.03, 0.04); });
-      ui.confirmOverlay.addEventListener("click", (e) => {
-        if (e.target === ui.confirmOverlay) closeConfirm();
+	      confirmOverlay.addEventListener("click", (e) => {
+	        if (e.target === confirmOverlay) closeConfirm();
       });
       ui.confirmYes.addEventListener("click", () => {
         // wipe meta and reload for a clean slate
@@ -1124,7 +1335,7 @@ export class Game {
         }
         this.player.setWeapon(w);
         this.meta.lastWeapon = w;
-        saveMeta(this.meta);
+	        this._metaDirty = true;
         this.audio.play("pick", 520, 0.05, "triangle", 0.05, 0.05);
       });
     }
@@ -1184,6 +1395,12 @@ export class Game {
           this.openPause();
         }
       }
+if (e.key === "Tab") {
+  // Quick build peek while playing (does not pause)
+  e.preventDefault();
+  if (this.overlayOpen) return;
+  this.toggleBuildPeek();
+}
     });
   }
 
@@ -1227,9 +1444,15 @@ export class Game {
     };
 
     this.wave = 1;
-    this.toSpawn = 8;
+    this.waveCfg = getWaveConfig(this.wave, this.diff);
+    this.toSpawn = this.waveCfg ? this.waveCfg.count : 0;
     this.spawnTimer = 0;
-    this.spawnRate = 0.22 * (this.diff?.spawnIntervalMult || 1);
+    this.spawnRate = this.waveCfg ? this.waveCfg.rate : (0.22 * (this.diff?.spawnIntervalMult || 1));
+
+    // wave / boss banner timers
+    this.bannerTimer = 0;
+    this.bannerMain = "";
+    this.bannerSub = "";
 
     // boss-wave guard (prevents immediate respawn on same frame as boss death)
     this.bossSpawned = false;
@@ -1247,6 +1470,7 @@ export class Game {
 
   openMenu() {
     this.overlayOpen = true;
+    if (this.ui?.waveBanner) { this.ui.waveBanner.classList.add("hidden"); this.ui.waveBanner.setAttribute("aria-hidden","true"); }
     this.overlayMode = "menu";
     this._renderOverlay({
       title: "PIXEL DUNGEON",
@@ -1278,6 +1502,7 @@ export class Game {
 
   startRun() {
     this.reset(); // reset with current diff + weapons + settings
+    this.showBanner(`WAVE ${this.wave}/${MAX_WAVE}`, isBossWaveN(this.wave) ? "BOSS" : "SURVIVE");
     this.overlayOpen = false;
     this.ui?.overlay?.classList.add("hidden");
     this.ui?.overlay?.setAttribute("aria-hidden", "true");
@@ -1338,6 +1563,7 @@ export class Game {
 
   openPause() {
     this.overlayOpen = true;
+    if (this.ui?.waveBanner) { this.ui.waveBanner.classList.add("hidden"); this.ui.waveBanner.setAttribute("aria-hidden","true"); }
     this.overlayMode = "pause";
     this._renderOverlay({ title: "Paused", desc: "Esc로 닫거나 계속하기를 누르세요.", choices: [] });
   }
@@ -1345,6 +1571,7 @@ export class Game {
   openDead() {
     if (this.overlayOpen && this.overlayMode === "dead") return;
     this.overlayOpen = true;
+    if (this.ui?.waveBanner) { this.ui.waveBanner.classList.add("hidden"); this.ui.waveBanner.setAttribute("aria-hidden","true"); }
     this.overlayMode = "dead";
     this._renderOverlay({
       title: "Game Over",
@@ -1356,6 +1583,7 @@ export class Game {
   openWin() {
     if (this.overlayOpen && this.overlayMode === "win") return;
     this.overlayOpen = true;
+    if (this.ui?.waveBanner) { this.ui.waveBanner.classList.add("hidden"); this.ui.waveBanner.setAttribute("aria-hidden","true"); }
     this.overlayMode = "win";
 
     // persist unlocks + best records
@@ -1398,6 +1626,8 @@ export class Game {
 
   _renderOverlay({ title, desc, choices }) {
     if (!this.ui) return;
+    // overlay takes focus -> hide quick build peek
+    if (this.buildPeekOpen) this.toggleBuildPeek(false);
 
     this.ui.overlayTitle.textContent = title;
     this.ui.overlayDesc.textContent = desc;
@@ -1517,7 +1747,69 @@ export class Game {
       rarity: rar,
       lv,
     });
+
+    if (this.buildPeekOpen) this._renderBuildPeek();
   }
+
+
+toggleBuildPeek(force = null) {
+  if (!this.ui?.buildPeek) return;
+  const next = (force == null) ? !this.buildPeekOpen : !!force;
+  this.buildPeekOpen = next;
+
+  this.ui.buildPeek.classList.toggle("hidden", !next);
+  this.ui.buildPeek.setAttribute("aria-hidden", next ? "false" : "true");
+  if (next) this._renderBuildPeek();
+}
+
+_renderBuildPeek() {
+  if (!this.ui?.buildPeek) return;
+
+  const p = this.player;
+  const b = this.build || {};
+  const ups = Array.isArray(b.upgrades) ? b.upgrades : [];
+  const recent = ups.slice(-6).reverse();
+
+  if (!recent.length) {
+    this.ui.buildPeek.innerHTML = `
+      <div class="rowTop">
+        <div class="ttl">Build</div>
+        <div class="hint">Tab: 닫기</div>
+      </div>
+      <div class="list">
+        <div class="up"><div class="left"><div class="idx">-</div><div class="name">아직 업그레이드 없음</div></div><div class="lv">Lv 0</div></div>
+      </div>
+    `;
+    return;
+  }
+
+  const rows = recent.map(u => {
+    const rar = String(u.rarity || "common");
+    const c = rarityColor(rar);
+    const idx = String(u.idx ?? "");
+    const title = escapeHTML(u.title || "");
+    const lv = String(u.lv ?? 1);
+    return `
+      <div class="up">
+        <div class="left">
+          <div class="idx">#${idx}</div>
+          <div class="name">${title}</div>
+        </div>
+        <div class="lv" title="${rar.toUpperCase()}" style="border-color:${c}; box-shadow:0 0 0 1px rgba(0,0,0,.18) inset;">
+          Lv ${lv}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  this.ui.buildPeek.innerHTML = `
+    <div class="rowTop">
+      <div class="ttl">Build · ${escapeHTML(p.weaponLabel())}</div>
+      <div class="hint">Tab: 닫기</div>
+    </div>
+    <div class="list">${rows}</div>
+  `;
+}
 
   _syncUnlockToMeta() {
     // if player got shotgun/rail, persist
@@ -1679,6 +1971,17 @@ export class Game {
     `;
   }
 
+  showBanner(main, sub = "", t = 1.35) {
+    if (!this.ui?.waveBanner) return;
+    this.bannerTimer = Math.max(this.bannerTimer, t);
+    this.bannerMain = String(main || "");
+    this.bannerSub = String(sub || "");
+    this.ui.waveBanner.innerHTML = `<div class="main">${escapeHTML(this.bannerMain)}</div>` +
+      (this.bannerSub ? `<div class="sub">${escapeHTML(this.bannerSub)}</div>` : "");
+    this.ui.waveBanner.classList.remove("hidden");
+    this.ui.waveBanner.setAttribute("aria-hidden", "false");
+  }
+
   start() {
     const loop = () => {
       const t = now();
@@ -1704,6 +2007,16 @@ export class Game {
   update(dt) {
     this.time += dt;
     this.camera.update(dt);
+
+    // wave banner timer
+    if (this.bannerTimer > 0) {
+      this.bannerTimer -= dt;
+      if (this.bannerTimer <= 0 && this.ui?.waveBanner) {
+        this.ui.waveBanner.classList.add("hidden");
+        this.ui.waveBanner.setAttribute("aria-hidden", "true");
+      }
+    }
+
 
     // beams
     for (const b of this.beams) b.update(dt);
@@ -1768,6 +2081,14 @@ export class Game {
 
     this._uiTick(dt);
 
+	    // throttle meta save
+	    this._metaSaveAcc += dt;
+	    if (this._metaDirty && this._metaSaveAcc >= 0.75) {
+	      saveMeta(this.meta);
+	      this._metaDirty = false;
+	      this._metaSaveAcc = 0;
+	    }
+
     if (this.player.hp <= 0) this.openDead();
   }
 
@@ -1777,12 +2098,22 @@ export class Game {
 
     // boss spawn is handled on demand when wave hits 5/10
     this.bossSpawned = false;
-    const bonus = Math.max(0, this.wave - 5);
-    this.toSpawn = Math.floor(10 + this.wave * 3.2 + bonus * 2.5);
-    this.spawnRate = Math.max(0.065, 0.20 - this.wave * 0.008);
-    this.spawnRate *= (this.diff?.spawnIntervalMult || 1);
+
+    this.waveCfg = getWaveConfig(this.wave, this.diff);
+    if (this.waveCfg) {
+      this.toSpawn = this.waveCfg.count;
+      this.spawnRate = this.waveCfg.rate;
+    } else {
+      this.toSpawn = 0;
+      this.spawnRate = Math.max(0.065, 0.14 * (this.diff?.spawnIntervalMult || 1));
+    }
 
     this.player.sh = Math.min(this.player.maxSh, this.player.sh + 16);
+
+    const bannerSub = isBossWaveN(this.wave) ? (this.wave === MAX_WAVE ? "FINAL BOSS" : "BOSS WAVE") : "SURVIVE";
+    this.showBanner(`WAVE ${this.wave}/${MAX_WAVE}`, bannerSub);
+
+    // subtle in-world floater
     this.floaters.push(new Floater(this.player.x - 34, this.player.y - 36, `WAVE ${this.wave}/${MAX_WAVE}`, 0.9, "rgba(210,177,106,.95)"));
     this.audio.play("wave", 240, 0.08, "triangle", 0.06, 0.12);
   }
@@ -1794,16 +2125,11 @@ export class Game {
     const y = this.arena.y + Math.sin(a) * dist;
 
     const w = this.wave;
-    const pool = [];
-    pool.push("chaser", "chaser", "chaser");
-    if (w >= 3) pool.push("charger");
-    if (w >= 4) pool.push("gunner");
-    if (w >= 5) pool.push("bomber");
-    if (w >= 7) pool.push("charger", "gunner");
-    if (w >= 9) pool.push("bomber", "gunner");
-    if (w >= 8) pool.push("bomber", "charger");
 
-    const kind = pool[Math.floor(Math.random() * pool.length)];
+    // Use wave plan weights to shape encounters (weapon switching + difficulty curve)
+    const weights = (this.waveCfg && this.waveCfg.weights) ? this.waveCfg.weights : { chaser: 10 };
+    const kind = pickWeighted(weights) || "chaser";
+
     const e = new Enemy(kind, x, y, this.wave);
 
     const hpM = (this.diff?.enemyHpMult || 1);
@@ -1846,6 +2172,7 @@ export class Game {
     this.enemies.push(b);
 
     const text = (kind === "boss2") ? "FINAL BOSS" : "BOSS WAVE";
+    this.showBanner(text, kind === "boss2" ? "FINALE" : "DANGER", 1.6);
     const col = (kind === "boss2") ? "rgba(210,177,106,.95)" : "rgba(255,210,122,.95)";
     this.floaters.push(new Floater(this.player.x - 62, this.player.y - 42, text, 1.2, col));
     this.audio.play(kind === "boss2" ? "boss2" : "boss", kind === "boss2" ? 220 : 140, 0.12, "sawtooth", 0.10, 0.20);
@@ -1935,7 +2262,7 @@ export class Game {
       for (const e of this.enemies) {
         const d = Math.hypot(e.x - b.x, e.y - b.y);
         if (d < e.r + b.r) {
-          e.hit(this, b.dmg);
+          e.hit(this, b.dmg, b.opts?.weapon);
           this.camera.kick(2.2);
           if (b.pierce > 0) b.pierce -= 1;
           else { b.t = b.life; break; }
@@ -1969,7 +2296,7 @@ export class Game {
     let hits = 0;
     for (const e of this.enemies) {
       const d = Math.hypot(e.x - player.x, e.y - player.y);
-      if (d < R) { e.hit(this, dmg); hits++; }
+      if (d < R) { e.hit(this, dmg, 'nova'); hits++; }
     }
     this.spawnHit(player.x, player.y, 24);
     this.camera.kick(7);
@@ -2010,7 +2337,7 @@ export class Game {
           if (d < bd) { bd = d; best = e; }
         }
         if (best && bd < 160) {
-          best.hit(this, orbDmg);
+          best.hit(this, orbDmg, 'orb');
           this.spawnHit(o.x, o.y, 6);
           this.audio.play("orb", 760, 0.03, "square", 0.04, 0.03);
         }
@@ -2040,17 +2367,28 @@ export class Game {
     if (this.ui.scoreText) this.ui.scoreText.textContent = String(p.score);
 
     // cooldown HUD (skills)
-    if (this.ui.dashCdFill && this.ui.dashCdText) {
+	    if (this.ui.dashCdFill && this.ui.dashCdText) {
       const max = Math.max(0.001, p.dashCdMax || (5 * (p.stats?.dashCdMult ?? 1)));
       const t = clamp(1 - (p.dashCd / max), 0, 1);
       this.ui.dashCdFill.style.width = `${t * 100}%`;
-      this.ui.dashCdText.textContent = (p.dashCd > 0.05) ? `${Math.ceil(p.dashCd)}s` : "READY";
+	      this.ui.dashCdText.textContent = (p.dashCd > 0.05) ? `${p.dashCd.toFixed(1)}s` : "READY";
+	      if (this.ui.skillDash) {
+	        this.ui.skillDash.classList.toggle("is-ready", p.dashCd <= 0.05);
+	      }
     }
     if (this.ui.aegisCdFill && this.ui.aegisCdText) {
       const max = Math.max(0.001, p.aegisCdMax || (30 * (p.stats?.skillCdMult ?? 1)));
       const t = clamp(1 - (p.aegisCd / max), 0, 1);
       this.ui.aegisCdFill.style.width = `${t * 100}%`;
-      this.ui.aegisCdText.textContent = (p.aegisCd > 0.05) ? `${Math.ceil(p.aegisCd)}s` : "READY";
+	      if (p.aegis > 0.01) {
+	        this.ui.aegisCdText.textContent = `ACTIVE ${p.aegis.toFixed(1)}s`;
+	      } else {
+	        this.ui.aegisCdText.textContent = (p.aegisCd > 0.05) ? `${p.aegisCd.toFixed(1)}s` : "READY";
+	      }
+	      if (this.ui.skillAegis) {
+	        this.ui.skillAegis.classList.toggle("is-active", p.aegis > 0.01);
+	        this.ui.skillAegis.classList.toggle("is-ready", p.aegisCd <= 0.05 && p.aegis <= 0.01);
+	      }
     }
 
     // weapon HUD highlight (no reflow)
@@ -2062,10 +2400,26 @@ export class Game {
       });
     }
 
+
+
+    // boss HP HUD
+    if (this.ui?.bossBar && this.ui?.bossFill && this.ui?.bossName && this.ui?.bossHpText) {
+      const boss = this.enemies.find(e => (e.kind === "boss" || e.kind === "boss2"));
+      if (boss) {
+        this.ui.bossBar.classList.remove("hidden");
+        const t = clamp(boss.hp / boss.maxHp, 0, 1);
+        this.ui.bossFill.style.width = `${t * 100}%`;
+        this.ui.bossName.textContent = (boss.kind === "boss2") ? "FINAL BOSS" : "BOSS";
+        this.ui.bossHpText.textContent = `${Math.ceil(boss.hp)}/${boss.maxHp}`;
+      } else {
+        this.ui.bossBar.classList.add("hidden");
+      }
+    }
     // update records live
-    if (p.score > (this.meta.bestScore || 0)) this.meta.bestScore = p.score;
-    if (this.wave > (this.meta.bestWave || 0)) this.meta.bestWave = this.wave;
-    saveMeta(this.meta);
+	    const prevScore = this.meta.bestScore || 0;
+	    const prevWave = this.meta.bestWave || 0;
+	    if (p.score > prevScore) { this.meta.bestScore = p.score; this._metaDirty = true; }
+	    if (this.wave > prevWave) { this.meta.bestWave = this.wave; this._metaDirty = true; }
   }
 
   draw(dim = false) {
