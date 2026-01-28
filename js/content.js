@@ -30,9 +30,9 @@ export const ITEMS = [
 
 
 // 무기 언락/빌드 코어
-{ key:"unlock_shotgun", rarity:"common", title:"Unlock: Shotgun", tag:"Weapon", desc:"샷건 사용 가능(2키)", apply(p,g){ if (p.unlockWeapon("shotgun")) g?.notifyWeaponUnlocked?.("shotgun"); } },
-{ key:"unlock_rail", rarity:"rare", title:"Unlock: Rail Beam", tag:"Weapon", desc:"레일빔 사용 가능(3키)", apply(p,g){ if (p.unlockWeapon("rail")) g?.notifyWeaponUnlocked?.("rail"); } },
-{ key:"unlock_crossbow", rarity:"rare", title:"Unlock: Crossbow", tag:"Weapon", desc:"크로스보우 사용 가능(4키)", apply(p,g){ if (p.unlockWeapon("crossbow")) g?.notifyWeaponUnlocked?.("crossbow"); } },
+{ key:"unlock_shotgun", rarity:"common", title:"Unlock: Shotgun", tag:"Weapon", desc:"샷건 사용 가능(2키)", apply(p){ p.unlockWeapon("shotgun"); } },
+{ key:"unlock_rail", rarity:"rare", title:"Unlock: Rail Beam", tag:"Weapon", desc:"레일빔 사용 가능(3키)", apply(p){ p.unlockWeapon("rail"); } },
+{ key:"unlock_crossbow", rarity:"rare", title:"Unlock: Crossbow", tag:"Weapon", desc:"크로스보우 사용 가능(4키)", apply(p){ p.unlockWeapon("crossbow"); } },
 
 { key:"pellets", rarity:"rare", title:"Pellets +2", tag:"Shotgun", desc:"샷건 펠릿 증가(폭딜 시너지)", requires:["shotgun"], apply(p){ p.stats.pellets += 2; } },
 { key:"shot_spread", rarity:"common", title:"Shotgun Spread -12%", tag:"Shotgun", desc:"샷건 퍼짐 감소(집탄)", requires:["shotgun"], apply(p){ p.stats.shotgunSpread *= 0.88; } },

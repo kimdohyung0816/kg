@@ -19,7 +19,6 @@
 }
 
 *{box-sizing:border-box}
-.hidden{display:none !important;}
 html,body{
   margin:0;
   height:100%;
@@ -90,59 +89,6 @@ canvas{
   gap:10px;
 }
 
-/* boss bar */
-.bossBar{
-  margin-top:10px;
-  max-width:720px;
-  pointer-events:none;
-  padding:10px 12px;
-  background:linear-gradient(180deg, rgba(55,38,24,.92), rgba(24,18,13,.92));
-  border:var(--px) solid var(--line2);
-  outline:1px solid rgba(255,111,111,.28);
-  border-radius:var(--radius);
-  box-shadow:0 14px 0 rgba(0,0,0,.22), 0 16px 24px rgba(0,0,0,.35);
-}
-.bossTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
-.bossName{ font-weight:900; letter-spacing:1px; color:rgba(255,210,122,.95); text-shadow:0 2px 0 rgba(0,0,0,.65);} 
-.bossHp{ font-weight:900; color:rgba(255,246,232,.80); font-size:12px; }
-.bossTrack{
-  margin-top:8px;
-  height:12px;
-  background:rgba(0,0,0,.55);
-  border:var(--px) solid rgba(0,0,0,.85);
-  outline:1px solid rgba(255,111,111,.20);
-  border-radius:10px;
-  overflow:hidden;
-}
-.bossFill{
-  height:100%;
-  width:100%;
-  background:linear-gradient(90deg, rgba(255,111,111,.95), rgba(210,70,70,.95));
-}
-
-/* wave banner (center, non-blocking) */
-.waveBanner{
-  position:fixed;
-  left:50%;
-  top:18%;
-  transform:translate(-50%,-50%);
-  z-index:12;
-  padding:12px 16px;
-  border-radius:16px;
-  background:linear-gradient(180deg, rgba(35,26,19,.92), rgba(22,16,12,.92));
-  border:var(--px) solid rgba(0,0,0,.85);
-  outline:1px solid rgba(255,224,170,.22);
-  box-shadow:0 18px 0 rgba(0,0,0,.20), 0 22px 40px rgba(0,0,0,.38);
-  pointer-events:none;
-  font-weight:900;
-  letter-spacing:1px;
-  text-align:center;
-  text-shadow:0 3px 0 rgba(0,0,0,.70);
-}
-.waveBanner .main{ font-size:28px; color:rgba(255,246,232,.95);} 
-.waveBanner .sub{ margin-top:4px; font-size:12px; color:rgba(255,246,232,.72);} 
-
-
 /* bottom HUD docks (weapons left / skills right) */
 .hudDock{
   position:fixed;
@@ -208,13 +154,6 @@ canvas{
   outline:1px solid rgba(255,224,170,.16);
   border-radius:14px;
   box-shadow:0 6px 0 rgba(0,0,0,.18);
-}
-.skill.is-ready{
-  outline:2px solid rgba(122,168,255,.35);
-}
-.skill.is-active{
-  outline:2px solid rgba(255,208,122,.55);
-  box-shadow:0 0 0 3px rgba(0,0,0,.22) inset, 0 10px 20px rgba(0,0,0,.34);
 }
 .skill + .skill{ margin-top:8px; }
 .skillTop{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
