@@ -42,7 +42,19 @@
       </div>
     </div>
 
+    <!-- Boss HP bar (shown only during boss waves) -->
+    <div id="bossBar" class="bossBar hidden" aria-label="Boss">
+      <div class="bossTop">
+        <div class="bossName" id="bossName">BOSS</div>
+        <div class="bossHp" id="bossHpText">0/0</div>
+      </div>
+      <div class="bossTrack"><div id="bossFill" class="bossFill"></div></div>
+    </div>
+
   </div>
+
+  <!-- Wave/Boss banner -->
+  <div id="waveBanner" class="waveBanner hidden" aria-hidden="true"></div>
 
   <canvas id="game"></canvas>
 

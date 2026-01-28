@@ -10,7 +10,30 @@ function norm(x, y) {
 }
 function rand(a = 0, b = 1) { return a + Math.random() * (b - a); }
 function randi(a, b) { return Math.floor(rand(a, b + 1)); }
+function pickWeighted(map) {
+  const entries = Object.entries(map || {});
+  let sum = 0;
+  for (const [,w] of entries) sum += Math.max(0, +w || 0);
+  if (sum <= 0) return null;
+  let r = Math.random() * sum;
+  for (const [k,w] of entries) {
+    r -= Math.max(0, +w || 0);
+    if (r <= 0) return k;
+  }
+  return entries[entries.length-1]?.[0] || null;
+}
 function now() { return performance.now(); }
+
+function escapeHTML(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (m) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  }[m]));
+}
+
 
 // localStorage meta
 const META_KEY = "PIXEL_DUNGEON_META_V3";
@@ -435,8 +458,41 @@ class Enemy {
     this.hp = this.maxHp;
   }
 
-  hit(game, dmg) {
-    this.hp -= dmg;
+  hit(game, dmg, srcWeapon = null) {
+    let final = dmg;
+    const w = String(srcWeapon || "");
+    if (w) {
+      const k = this.kind;
+      // Weapon situational multipliers: encourages switching
+      const mult = (() => {
+        if (k === "boss" || k === "boss2") {
+          if (w === "shotgun") return 0.75;
+          if (w === "pistol") return 0.90;
+          if (w === "rail") return 0.85;
+          if (w === "crossbow") return 1.10;
+        }
+        if (k === "gunner") {
+          if (w === "pistol") return 0.80;
+          if (w === "shotgun") return 0.70;
+          if (w === "rail") return 1.05;
+          if (w === "crossbow") return 1.15;
+        }
+        if (k === "bomber") {
+          if (w === "rail") return 0.75;
+          if (w === "shotgun") return 0.85;
+          if (w === "crossbow") return 1.05;
+        }
+        if (k === "charger") {
+          if (w === "shotgun") return 1.10;
+          if (w === "rail") return 0.95;
+        }
+        // chaser and default
+        return 1;
+      })();
+      final = Math.max(1, Math.floor(final * mult));
+    }
+
+    this.hp -= final;
     this.hitFlash = 0.10;
     if (this.hp <= 0) game.killEnemy(this);
   }
@@ -503,7 +559,7 @@ class Enemy {
         for (const e of game.enemies) {
           if (e === this) continue;
           const dd = Math.hypot(e.x - this.x, e.y - this.y);
-          if (dd < R) e.hit(game, 55);
+          if (dd < R) e.hit(game, 55, 'rail');
         }
         if (d < R) game.damagePlayer(24);
         game.spawnHit(this.x, this.y, 30);
@@ -547,7 +603,7 @@ class Enemy {
         for (const e of game.enemies) {
           if (e === this) continue;
           const dd = Math.hypot(e.x - this.x, e.y - this.y);
-          if (dd < R) e.hit(game, 70);
+          if (dd < R) e.hit(game, 70, 'rail');
         }
         if (d < R) game.damagePlayer(28);
         game.spawnHit(this.x, this.y, 42);
@@ -764,7 +820,13 @@ class Player {
   }
 
   hasWeapon(name) { return this.weapons.has(String(name)); }
-  unlockWeapon(name) { this.weapons.add(String(name)); }
+  // returns true only when it was newly unlocked
+  unlockWeapon(name) {
+    const k = String(name);
+    const had = this.weapons.has(k);
+    this.weapons.add(k);
+    return !had;
+  }
   setWeapon(name) {
     const n = String(name);
     if (this.weapons.has(n)) this.weapon = n;
@@ -914,7 +976,7 @@ class Player {
       const a = ang + rand(-spread, spread);
       const vx = Math.cos(a) * speed;
       const vy = Math.sin(a) * speed;
-      game.bullets.push(new Bullet(this.x, this.y, vx, vy, dmg, pierce, r, "player"));
+      game.bullets.push(new Bullet(this.x, this.y, vx, vy, dmg, pierce, r, "player", { weapon: this.weapon }));
       game.audio.play("shot", 520, 0.04, "square", 0.05, 0.02);
       if (crit) game.audio.play("crit", 860, 0.05, "triangle", 0.05, 0.05);
       return;
@@ -928,7 +990,7 @@ class Player {
         const a = ang + rand(-sp, sp);
         const vx = Math.cos(a) * (speed * rand(0.78, 0.92));
         const vy = Math.sin(a) * (speed * rand(0.78, 0.92));
-        game.bullets.push(new Bullet(this.x, this.y, vx, vy, Math.floor(dmg * 0.45), pierce, r * 0.90, "player", { life: 0.55 }));
+        game.bullets.push(new Bullet(this.x, this.y, vx, vy, Math.floor(dmg * 0.45), pierce, r * 0.90, "player", { life: 0.55, weapon: this.weapon }));
       }
       game.audio.play("shotgun", 260, 0.06, "square", 0.08, 0.06);
       return;
@@ -944,7 +1006,7 @@ class Player {
         const vx = Math.cos(a) * (speed * 1.02);
         const vy = Math.sin(a) * (speed * 1.02);
         // High single-target, slow rate: good vs bosses, not a room sweeper
-        game.bullets.push(new Bullet(this.x, this.y, vx, vy, Math.floor(dmg * 1.20), boltPierce, r * 1.05, "player", { bolt: true, life: 2.0 }));
+        game.bullets.push(new Bullet(this.x, this.y, vx, vy, Math.floor(dmg * 1.20), boltPierce, r * 1.05, "player", { bolt: true, life: 2.0, weapon: this.weapon }));
       }
       game.camera.kick(3);
       game.audio.play("crossbow", 330, 0.07, "sawtooth", 0.06, 0.06);
@@ -1033,6 +1095,32 @@ function distToSegmentSq(px, py, ax, ay, bx, by) {
    Game
    ========================= */
 const MAX_WAVE = 10;
+
+// Spawn plans (non-boss waves). Boss waves are 5 and 10.
+// Goal: make later waves meaningfully harder and enforce weapon switching.
+const WAVE_PLAN = {
+  1: { count: 14, rate: 0.22, weights: { chaser: 10 } },
+  2: { count: 18, rate: 0.21, weights: { chaser: 10, charger: 3 } },
+  3: { count: 22, rate: 0.20, weights: { chaser: 9, charger: 5, gunner: 2 } },
+  4: { count: 26, rate: 0.19, weights: { chaser: 7, charger: 5, gunner: 4, bomber: 2 } },
+  6: { count: 30, rate: 0.18, weights: { chaser: 5, charger: 6, gunner: 5, bomber: 4 } },
+  7: { count: 34, rate: 0.17, weights: { chaser: 4, charger: 6, gunner: 6, bomber: 6 } },
+  8: { count: 38, rate: 0.16, weights: { chaser: 3, charger: 6, gunner: 7, bomber: 7 } },
+  9: { count: 42, rate: 0.15, weights: { chaser: 2, charger: 6, gunner: 8, bomber: 8 } },
+};
+
+function isBossWaveN(w) { return (w === 5 || w === 10); }
+function getWaveConfig(w, diff) {
+  if (isBossWaveN(w)) return null;
+  const base = WAVE_PLAN[w] || WAVE_PLAN[1];
+  const spawnIntervalMult = (diff?.spawnIntervalMult || 1);
+  return {
+    count: Math.floor(base.count * (diff?.key === "easy" ? 0.92 : (diff?.key === "hard" ? 1.22 : 1.0))),
+    rate: Math.max(0.065, base.rate * spawnIntervalMult),
+    weights: base.weights,
+  };
+}
+
 export class Game {
   constructor(canvas) {
     this.canvas = canvas;
@@ -1078,9 +1166,22 @@ export class Game {
     this.meta = loadMeta() || defaultMeta();
     this.diff = diffProfile(this.meta.lastDiff);
 
+	  // meta 저장을 매 프레임 하지 않도록(성능/수명) - 누적 후 주기적으로 저장
+	  this._metaDirty = false;
+	  this._metaSaveAcc = 0;
+
     this.reset();
     this._bindGlobalKeys();
   }
+
+	// 무기 해금/중요 이벤트를 화면에 깔끔하게 표시
+	notifyWeaponUnlocked(weaponKey) {
+	  const name = String(weaponKey);
+	  const label = (name === "shotgun") ? "SHOTGUN" : (name === "rail") ? "RAIL BEAM" : (name === "crossbow") ? "CROSSBOW" : name.toUpperCase();
+	  this.floaters.push(new Floater(this.player.x, this.player.y - 28, `UNLOCKED: ${label}`, 1.0, "rgba(122,168,255,.95)"));
+	  this.camera.kick(6);
+	  this.audio.play("unlock", 680, 0.08, "triangle", 0.07, 0.10);
+	}
 
   bindUI(ui) {
     this.ui = ui;
@@ -1089,20 +1190,21 @@ export class Game {
     ui.btnResume.addEventListener("click", () => this.closeOverlay());
     ui.btnRestart.addEventListener("click", () => { this.reset(); this.openMenu(); });
 
-    // full reset (clear progress)
-    if (ui.btnReset && ui.confirmOverlay && ui.confirmYes && ui.confirmNo) {
+	    // full reset (clear progress)
+	    const confirmOverlay = ui.confirmOverlay || ui.confirm;
+	    if (ui.btnReset && confirmOverlay && ui.confirmYes && ui.confirmNo) {
       const openConfirm = () => {
         this.audio.resume();
-        ui.confirmOverlay.hidden = false;
+	        confirmOverlay.hidden = false;
         this.audio.play("click", 240, 0.06, "square", 0.03, 0.04);
       };
       const closeConfirm = () => {
-        ui.confirmOverlay.hidden = true;
+	        confirmOverlay.hidden = true;
       };
       ui.btnReset.addEventListener("click", openConfirm);
       ui.confirmNo.addEventListener("click", () => { closeConfirm(); this.audio.play("click", 220, 0.05, "square", 0.03, 0.04); });
-      ui.confirmOverlay.addEventListener("click", (e) => {
-        if (e.target === ui.confirmOverlay) closeConfirm();
+	      confirmOverlay.addEventListener("click", (e) => {
+	        if (e.target === confirmOverlay) closeConfirm();
       });
       ui.confirmYes.addEventListener("click", () => {
         // wipe meta and reload for a clean slate
@@ -1124,7 +1226,7 @@ export class Game {
         }
         this.player.setWeapon(w);
         this.meta.lastWeapon = w;
-        saveMeta(this.meta);
+	        this._metaDirty = true;
         this.audio.play("pick", 520, 0.05, "triangle", 0.05, 0.05);
       });
     }
@@ -1227,9 +1329,15 @@ export class Game {
     };
 
     this.wave = 1;
-    this.toSpawn = 8;
+    this.waveCfg = getWaveConfig(this.wave, this.diff);
+    this.toSpawn = this.waveCfg ? this.waveCfg.count : 0;
     this.spawnTimer = 0;
-    this.spawnRate = 0.22 * (this.diff?.spawnIntervalMult || 1);
+    this.spawnRate = this.waveCfg ? this.waveCfg.rate : (0.22 * (this.diff?.spawnIntervalMult || 1));
+
+    // wave / boss banner timers
+    this.bannerTimer = 0;
+    this.bannerMain = "";
+    this.bannerSub = "";
 
     // boss-wave guard (prevents immediate respawn on same frame as boss death)
     this.bossSpawned = false;
@@ -1247,6 +1355,7 @@ export class Game {
 
   openMenu() {
     this.overlayOpen = true;
+    if (this.ui?.waveBanner) { this.ui.waveBanner.classList.add("hidden"); this.ui.waveBanner.setAttribute("aria-hidden","true"); }
     this.overlayMode = "menu";
     this._renderOverlay({
       title: "PIXEL DUNGEON",
@@ -1278,6 +1387,7 @@ export class Game {
 
   startRun() {
     this.reset(); // reset with current diff + weapons + settings
+    this.showBanner(`WAVE ${this.wave}/${MAX_WAVE}`, isBossWaveN(this.wave) ? "BOSS" : "SURVIVE");
     this.overlayOpen = false;
     this.ui?.overlay?.classList.add("hidden");
     this.ui?.overlay?.setAttribute("aria-hidden", "true");
@@ -1338,6 +1448,7 @@ export class Game {
 
   openPause() {
     this.overlayOpen = true;
+    if (this.ui?.waveBanner) { this.ui.waveBanner.classList.add("hidden"); this.ui.waveBanner.setAttribute("aria-hidden","true"); }
     this.overlayMode = "pause";
     this._renderOverlay({ title: "Paused", desc: "Esc로 닫거나 계속하기를 누르세요.", choices: [] });
   }
@@ -1345,6 +1456,7 @@ export class Game {
   openDead() {
     if (this.overlayOpen && this.overlayMode === "dead") return;
     this.overlayOpen = true;
+    if (this.ui?.waveBanner) { this.ui.waveBanner.classList.add("hidden"); this.ui.waveBanner.setAttribute("aria-hidden","true"); }
     this.overlayMode = "dead";
     this._renderOverlay({
       title: "Game Over",
@@ -1356,6 +1468,7 @@ export class Game {
   openWin() {
     if (this.overlayOpen && this.overlayMode === "win") return;
     this.overlayOpen = true;
+    if (this.ui?.waveBanner) { this.ui.waveBanner.classList.add("hidden"); this.ui.waveBanner.setAttribute("aria-hidden","true"); }
     this.overlayMode = "win";
 
     // persist unlocks + best records
@@ -1679,6 +1792,17 @@ export class Game {
     `;
   }
 
+  showBanner(main, sub = "", t = 1.35) {
+    if (!this.ui?.waveBanner) return;
+    this.bannerTimer = Math.max(this.bannerTimer, t);
+    this.bannerMain = String(main || "");
+    this.bannerSub = String(sub || "");
+    this.ui.waveBanner.innerHTML = `<div class="main">${escapeHTML(this.bannerMain)}</div>` +
+      (this.bannerSub ? `<div class="sub">${escapeHTML(this.bannerSub)}</div>` : "");
+    this.ui.waveBanner.classList.remove("hidden");
+    this.ui.waveBanner.setAttribute("aria-hidden", "false");
+  }
+
   start() {
     const loop = () => {
       const t = now();
@@ -1704,6 +1828,16 @@ export class Game {
   update(dt) {
     this.time += dt;
     this.camera.update(dt);
+
+    // wave banner timer
+    if (this.bannerTimer > 0) {
+      this.bannerTimer -= dt;
+      if (this.bannerTimer <= 0 && this.ui?.waveBanner) {
+        this.ui.waveBanner.classList.add("hidden");
+        this.ui.waveBanner.setAttribute("aria-hidden", "true");
+      }
+    }
+
 
     // beams
     for (const b of this.beams) b.update(dt);
@@ -1768,6 +1902,14 @@ export class Game {
 
     this._uiTick(dt);
 
+	    // throttle meta save
+	    this._metaSaveAcc += dt;
+	    if (this._metaDirty && this._metaSaveAcc >= 0.75) {
+	      saveMeta(this.meta);
+	      this._metaDirty = false;
+	      this._metaSaveAcc = 0;
+	    }
+
     if (this.player.hp <= 0) this.openDead();
   }
 
@@ -1777,12 +1919,22 @@ export class Game {
 
     // boss spawn is handled on demand when wave hits 5/10
     this.bossSpawned = false;
-    const bonus = Math.max(0, this.wave - 5);
-    this.toSpawn = Math.floor(10 + this.wave * 3.2 + bonus * 2.5);
-    this.spawnRate = Math.max(0.065, 0.20 - this.wave * 0.008);
-    this.spawnRate *= (this.diff?.spawnIntervalMult || 1);
+
+    this.waveCfg = getWaveConfig(this.wave, this.diff);
+    if (this.waveCfg) {
+      this.toSpawn = this.waveCfg.count;
+      this.spawnRate = this.waveCfg.rate;
+    } else {
+      this.toSpawn = 0;
+      this.spawnRate = Math.max(0.065, 0.14 * (this.diff?.spawnIntervalMult || 1));
+    }
 
     this.player.sh = Math.min(this.player.maxSh, this.player.sh + 16);
+
+    const bannerSub = isBossWaveN(this.wave) ? (this.wave === MAX_WAVE ? "FINAL BOSS" : "BOSS WAVE") : "SURVIVE";
+    this.showBanner(`WAVE ${this.wave}/${MAX_WAVE}`, bannerSub);
+
+    // subtle in-world floater
     this.floaters.push(new Floater(this.player.x - 34, this.player.y - 36, `WAVE ${this.wave}/${MAX_WAVE}`, 0.9, "rgba(210,177,106,.95)"));
     this.audio.play("wave", 240, 0.08, "triangle", 0.06, 0.12);
   }
@@ -1794,16 +1946,11 @@ export class Game {
     const y = this.arena.y + Math.sin(a) * dist;
 
     const w = this.wave;
-    const pool = [];
-    pool.push("chaser", "chaser", "chaser");
-    if (w >= 3) pool.push("charger");
-    if (w >= 4) pool.push("gunner");
-    if (w >= 5) pool.push("bomber");
-    if (w >= 7) pool.push("charger", "gunner");
-    if (w >= 9) pool.push("bomber", "gunner");
-    if (w >= 8) pool.push("bomber", "charger");
 
-    const kind = pool[Math.floor(Math.random() * pool.length)];
+    // Use wave plan weights to shape encounters (weapon switching + difficulty curve)
+    const weights = (this.waveCfg && this.waveCfg.weights) ? this.waveCfg.weights : { chaser: 10 };
+    const kind = pickWeighted(weights) || "chaser";
+
     const e = new Enemy(kind, x, y, this.wave);
 
     const hpM = (this.diff?.enemyHpMult || 1);
@@ -1846,6 +1993,7 @@ export class Game {
     this.enemies.push(b);
 
     const text = (kind === "boss2") ? "FINAL BOSS" : "BOSS WAVE";
+    this.showBanner(text, kind === "boss2" ? "FINALE" : "DANGER", 1.6);
     const col = (kind === "boss2") ? "rgba(210,177,106,.95)" : "rgba(255,210,122,.95)";
     this.floaters.push(new Floater(this.player.x - 62, this.player.y - 42, text, 1.2, col));
     this.audio.play(kind === "boss2" ? "boss2" : "boss", kind === "boss2" ? 220 : 140, 0.12, "sawtooth", 0.10, 0.20);
@@ -1935,7 +2083,7 @@ export class Game {
       for (const e of this.enemies) {
         const d = Math.hypot(e.x - b.x, e.y - b.y);
         if (d < e.r + b.r) {
-          e.hit(this, b.dmg);
+          e.hit(this, b.dmg, b.opts?.weapon);
           this.camera.kick(2.2);
           if (b.pierce > 0) b.pierce -= 1;
           else { b.t = b.life; break; }
@@ -1969,7 +2117,7 @@ export class Game {
     let hits = 0;
     for (const e of this.enemies) {
       const d = Math.hypot(e.x - player.x, e.y - player.y);
-      if (d < R) { e.hit(this, dmg); hits++; }
+      if (d < R) { e.hit(this, dmg, 'nova'); hits++; }
     }
     this.spawnHit(player.x, player.y, 24);
     this.camera.kick(7);
@@ -2010,7 +2158,7 @@ export class Game {
           if (d < bd) { bd = d; best = e; }
         }
         if (best && bd < 160) {
-          best.hit(this, orbDmg);
+          best.hit(this, orbDmg, 'orb');
           this.spawnHit(o.x, o.y, 6);
           this.audio.play("orb", 760, 0.03, "square", 0.04, 0.03);
         }
@@ -2040,17 +2188,28 @@ export class Game {
     if (this.ui.scoreText) this.ui.scoreText.textContent = String(p.score);
 
     // cooldown HUD (skills)
-    if (this.ui.dashCdFill && this.ui.dashCdText) {
+	    if (this.ui.dashCdFill && this.ui.dashCdText) {
       const max = Math.max(0.001, p.dashCdMax || (5 * (p.stats?.dashCdMult ?? 1)));
       const t = clamp(1 - (p.dashCd / max), 0, 1);
       this.ui.dashCdFill.style.width = `${t * 100}%`;
-      this.ui.dashCdText.textContent = (p.dashCd > 0.05) ? `${Math.ceil(p.dashCd)}s` : "READY";
+	      this.ui.dashCdText.textContent = (p.dashCd > 0.05) ? `${p.dashCd.toFixed(1)}s` : "READY";
+	      if (this.ui.skillDash) {
+	        this.ui.skillDash.classList.toggle("is-ready", p.dashCd <= 0.05);
+	      }
     }
     if (this.ui.aegisCdFill && this.ui.aegisCdText) {
       const max = Math.max(0.001, p.aegisCdMax || (30 * (p.stats?.skillCdMult ?? 1)));
       const t = clamp(1 - (p.aegisCd / max), 0, 1);
       this.ui.aegisCdFill.style.width = `${t * 100}%`;
-      this.ui.aegisCdText.textContent = (p.aegisCd > 0.05) ? `${Math.ceil(p.aegisCd)}s` : "READY";
+	      if (p.aegis > 0.01) {
+	        this.ui.aegisCdText.textContent = `ACTIVE ${p.aegis.toFixed(1)}s`;
+	      } else {
+	        this.ui.aegisCdText.textContent = (p.aegisCd > 0.05) ? `${p.aegisCd.toFixed(1)}s` : "READY";
+	      }
+	      if (this.ui.skillAegis) {
+	        this.ui.skillAegis.classList.toggle("is-active", p.aegis > 0.01);
+	        this.ui.skillAegis.classList.toggle("is-ready", p.aegisCd <= 0.05 && p.aegis <= 0.01);
+	      }
     }
 
     // weapon HUD highlight (no reflow)
@@ -2062,10 +2221,26 @@ export class Game {
       });
     }
 
+
+
+    // boss HP HUD
+    if (this.ui?.bossBar && this.ui?.bossFill && this.ui?.bossName && this.ui?.bossHpText) {
+      const boss = this.enemies.find(e => (e.kind === "boss" || e.kind === "boss2"));
+      if (boss) {
+        this.ui.bossBar.classList.remove("hidden");
+        const t = clamp(boss.hp / boss.maxHp, 0, 1);
+        this.ui.bossFill.style.width = `${t * 100}%`;
+        this.ui.bossName.textContent = (boss.kind === "boss2") ? "FINAL BOSS" : "BOSS";
+        this.ui.bossHpText.textContent = `${Math.ceil(boss.hp)}/${boss.maxHp}`;
+      } else {
+        this.ui.bossBar.classList.add("hidden");
+      }
+    }
     // update records live
-    if (p.score > (this.meta.bestScore || 0)) this.meta.bestScore = p.score;
-    if (this.wave > (this.meta.bestWave || 0)) this.meta.bestWave = this.wave;
-    saveMeta(this.meta);
+	    const prevScore = this.meta.bestScore || 0;
+	    const prevWave = this.meta.bestWave || 0;
+	    if (p.score > prevScore) { this.meta.bestScore = p.score; this._metaDirty = true; }
+	    if (this.wave > prevWave) { this.meta.bestWave = this.wave; this._metaDirty = true; }
   }
 
   draw(dim = false) {
