@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PIXEL DUNGEON RAIDER</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="ui">
+    <div class="row">
+      <div class="brand">PIXEL DUNGEON</div>
+      <div class="hint">WASD 이동 · 마우스 조준 · 클릭/스페이스 발사 · Shift 대시 · 우클릭 노바 · Esc 일시정지 · 1/2/3 무기전환</div>
+    </div>
+
+    <div class="bars">
+      <div class="bar">
+        <div class="label">HP</div>
+        <div class="track"><div id="hpFill" class="fill"></div></div>
+        <div id="hpText" class="txt"></div>
+      </div>
+
+      <div class="bar">
+        <div class="label">SH</div>
+        <div class="track"><div id="shFill" class="fill alt"></div></div>
+        <div id="shText" class="txt"></div>
+      </div>
+
+      <div class="bar">
+        <div class="label">XP</div>
+        <div class="track"><div id="xpFill" class="fill xp"></div></div>
+        <div id="xpText" class="txt"></div>
+      </div>
+
+      <div class="right">
+        <div class="chip">Wave: <b id="waveText">1</b></div>
+        <div class="chip">Lvl: <b id="lvlText">1</b></div>
+        <div class="chip">Score: <b id="scoreText">0</b></div>
+        <div class="chip">FPS: <b id="fpsText">0</b></div>
+      </div>
+    </div>
+  </div>
+
+  <canvas id="game"></canvas>
+
+  <!-- 오버레이: 메뉴/일시정지/레벨업/튜토리얼 -->
+  <div id="overlay" class="overlay hidden" aria-hidden="true">
+    <div class="panel">
+      <h2 id="overlayTitle">Menu</h2>
+      <p id="overlayDesc" class="desc"></p>
+
+      <!-- 메인 메뉴 영역 -->
+      <div id="menuArea" class="menuArea" aria-label="Main Menu">
+        <div class="menuGrid">
+          <div class="menuCard">
+            <div class="menuH">기록</div>
+            <div class="menuKV">
+              <div class="k">Best Wave</div><div class="v" id="bestWaveText">0</div>
+              <div class="k">Best Score</div><div class="v" id="bestScoreText">0</div>
+            </div>
+          </div>
+
+          <div class="menuCard">
+            <div class="menuH">난이도</div>
+            <div class="diffPills" id="diffPills">
+              <button class="pill" data-diff="easy" type="button">Easy</button>
+              <button class="pill is-active" data-diff="normal" type="button">Normal</button>
+              <button class="pill" data-diff="hard" type="button">Hard</button>
+            </div>
+            <div class="menuSmall" id="diffDesc">밸런스형. 기본 추천.</div>
+          </div>
+
+          <div class="menuCard">
+            <div class="menuH">시작 무기</div>
+            <div class="weaponPills" id="weaponPills">
+              <!-- filled by JS -->
+            </div>
+            <div class="menuSmall" id="weaponDesc">해금된 무기 중에서 시작 무기를 선택할 수 있어요.</div>
+          </div>
+
+          <div class="menuCard">
+            <div class="menuH">설정</div>
+            <div class="settingRow">
+              <div class="k">SFX Volume</div>
+              <input id="volRange" type="range" min="0" max="100" value="60" />
+              <div class="v" id="volText">60</div>
+            </div>
+            <div class="settingRow">
+              <div class="k">Screen Shake</div>
+              <input id="shakeRange" type="range" min="0" max="100" value="70" />
+              <div class="v" id="shakeText">70</div>
+            </div>
+            <div class="menuSmall">볼륨은 효과음 기준(브라우저 정책상 첫 클릭 후 재생).</div>
+          </div>
+
+          <div class="menuCard wide">
+            <div class="menuH">해금</div>
+            <div class="unlockRow" id="unlockRow"></div>
+            <div class="menuSmall">게임 중 무기를 해금하면 다음부터 시작 시에도 유지됩니다.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 튜토리얼 영역 -->
+      <div id="tutorialArea" class="tutorialArea" aria-label="Tutorial"></div>
+
+      <!-- 레벨업 카드 -->
+      <div id="cards" class="cards"></div>
+
+      <!-- 일시정지/사망: 빌드 요약 -->
+      <div id="buildSummary" class="build" aria-label="Build Summary"></div>
+
+      <div class="actions">
+        <button id="btnStart" class="btn primary">시작</button>
+        <button id="btnResume" class="btn">계속하기</button>
+        <button id="btnRestart" class="btn ghost">재시작</button>
+      </div>
+
+      <div class="small">팁: 메뉴에서 난이도·무기·설정을 바꾸고 시작하세요.</div>
+    </div>
+  </div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
