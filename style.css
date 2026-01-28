@@ -23,6 +23,8 @@ html,body{
   margin:0;
   height:100%;
   background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,.03) 0 2px, transparent 2px 8px),
+    repeating-linear-gradient(0deg, rgba(0,0,0,.12) 0 2px, transparent 2px 8px),
     radial-gradient(1200px 700px at 50% -20%, rgba(210,177,106,.18), transparent 55%),
     radial-gradient(900px 600px at 80% 0%, rgba(122,168,255,.10), transparent 60%),
     radial-gradient(900px 600px at 10% 100%, rgba(127,226,122,.08), transparent 65%),
@@ -30,6 +32,14 @@ html,body{
   color:var(--txt);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
   letter-spacing:.2px;
+}
+
+.brandLogo{
+  height:34px;
+  width:auto;
+  display:block;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 2px 0 rgba(0,0,0,.65));
 }
 
 canvas{
@@ -63,10 +73,8 @@ canvas{
 }
 
 .brand{
-  font-family: Georgia, "Times New Roman", serif;
-  font-weight:900;
-  letter-spacing:1.2px;
-  text-shadow:0 2px 0 rgba(0,0,0,.7);
+  display:flex;
+  align-items:center;
 }
 .hint{
   font-size:12px;
@@ -80,6 +88,93 @@ canvas{
   align-items:stretch;
   gap:10px;
 }
+
+/* bottom HUD docks (weapons left / skills right) */
+.hudDock{
+  position:fixed;
+  bottom:14px;
+  z-index:11;
+  pointer-events:none;
+}
+.hudDock--left{ left:14px; }
+.hudDock--right{ right:14px; }
+
+.hudCard{
+  padding:10px 12px;
+  background:linear-gradient(180deg, rgba(35,26,19,.92), rgba(22,16,12,.92));
+  border:var(--px) solid var(--line2);
+  outline:1px solid var(--line);
+  border-radius:var(--radius);
+  box-shadow:0 14px 0 rgba(0,0,0,.22), 0 16px 24px rgba(0,0,0,.35);
+  pointer-events:auto;
+}
+
+/* weapons dock */
+#hudWeaponsDock .hudCard{ padding:10px; }
+#hudWeapons{ display:flex; gap:10px; align-items:center; }
+.wBtn{
+  cursor:pointer;
+  width:58px;
+  height:58px;
+  display:grid;
+  place-items:center;
+  position:relative;
+  background:linear-gradient(180deg, rgba(44,34,26,.92), rgba(26,18,13,.92));
+  border:var(--px) solid rgba(0,0,0,.80);
+  outline:1px solid rgba(255,224,170,.16);
+  border-radius:14px;
+  user-select:none;
+  transition: transform .08s ease, outline-color .08s ease, filter .08s ease;
+}
+.wBtn img{ width:30px; height:30px; image-rendering: pixelated; filter: drop-shadow(0 2px 0 rgba(0,0,0,.65)); }
+.wBtn .kbd{
+  position:absolute;
+  left:7px;
+  top:7px;
+  font-weight:900;
+  font-size:12px;
+  color:rgba(255,246,232,.88);
+  text-shadow:0 2px 0 rgba(0,0,0,.65);
+}
+.wBtn.is-locked{ opacity:.35; filter: grayscale(.85); cursor:not-allowed; }
+.wBtn.is-active{
+  outline:2px solid rgba(122,168,255,.70);
+  box-shadow:0 0 0 3px rgba(0,0,0,.22) inset, 0 10px 18px rgba(0,0,0,.30);
+  transform: scale(1.12);
+}
+.wBtn.is-active img{ filter: drop-shadow(0 2px 0 rgba(0,0,0,.65)) brightness(1.06); }
+
+/* skills dock */
+#hudSkillsDock .hudCard{ width:420px; padding:10px 12px; }
+
+.skill{
+  padding:8px 10px;
+  background:linear-gradient(180deg, rgba(44,34,26,.92), rgba(26,18,13,.92));
+  border:var(--px) solid rgba(0,0,0,.75);
+  outline:1px solid rgba(255,224,170,.16);
+  border-radius:14px;
+  box-shadow:0 6px 0 rgba(0,0,0,.18);
+}
+.skill + .skill{ margin-top:8px; }
+.skillTop{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+.skillKey{ color:var(--gold); font-weight:900; font-size:12px; }
+.skillName{ color:rgba(255,246,232,.92); font-weight:900; font-size:12px; }
+.skillTime{ color:rgba(255,246,232,.76); font-weight:900; font-size:12px; }
+.skillTrack{
+  margin-top:6px;
+  height:10px;
+  background:rgba(0,0,0,.45);
+  border:var(--px) solid rgba(0,0,0,.80);
+  outline:1px solid rgba(255,224,170,.12);
+  border-radius:10px;
+  overflow:hidden;
+}
+.skillFill{
+  height:100%;
+  width:100%;
+  background:linear-gradient(90deg, rgba(122,168,255,.95), rgba(95,130,230,.95));
+}
+.skillFill.alt{ background:linear-gradient(90deg, rgba(255,210,122,.95), rgba(210,177,106,.95)); }
 
 .bar{
   flex:1;
@@ -239,6 +334,16 @@ canvas{
   font-weight:900;
   font-size:12px;
   text-shadow:0 1px 0 rgba(0,0,0,.65);
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.pill .pillIcon{
+  width:18px;
+  height:18px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 1px 0 rgba(0,0,0,.65));
 }
 .pill.is-active{
   outline:1px solid rgba(210,177,106,.65);
@@ -431,6 +536,16 @@ input[type="range"]{
 .btn.ghost{
   background:transparent;
 }
+.btn.danger{
+  background:linear-gradient(180deg, rgba(255,111,111,.92), rgba(180,60,60,.92));
+  color:rgba(20,14,10,.95);
+  text-shadow:none;
+}
+.btn.danger.ghost{
+  background:rgba(255,111,111,.10);
+  color:rgba(255,246,232,.92);
+  border-color:rgba(0,0,0,.80);
+}
 .btn:hover{ filter:brightness(1.04); transform:translateY(-1px); }
 .btn:active{ transform:translateY(0); filter:brightness(.98); }
 
@@ -439,6 +554,48 @@ input[type="range"]{
   font-size:12px;
   color:rgba(255,246,232,.62);
   text-shadow:0 1px 0 rgba(0,0,0,.65);
+}
+
+/* confirm modal */
+.confirm{
+  position:fixed; inset:0;
+  z-index:60;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:18px;
+  background:radial-gradient(900px 500px at 50% 20%, rgba(0,0,0,.35), rgba(0,0,0,.82));
+  backdrop-filter: blur(6px);
+}
+.confirm.hidden{ display:none; }
+.confirmPanel{
+  width:min(560px, 94vw);
+  background:linear-gradient(180deg, rgba(45,34,25,.96), rgba(24,18,13,.96));
+  border:calc(var(--px) + 1px) solid rgba(0,0,0,.85);
+  outline:1px solid rgba(255,224,170,.22);
+  border-radius:18px;
+  box-shadow:0 18px 0 rgba(0,0,0,.30), 0 26px 50px rgba(0,0,0,.55);
+  padding:14px 14px 12px;
+}
+.confirmPanel h3{
+  margin:0 0 6px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight:900;
+  letter-spacing:1px;
+  text-shadow:0 2px 0 rgba(0,0,0,.75);
+}
+.confirmPanel p{
+  margin:0;
+  color:rgba(255,246,232,.75);
+  font-size:13px;
+  line-height:1.45;
+  text-shadow:0 1px 0 rgba(0,0,0,.65);
+}
+.confirmActions{
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+  margin-top:12px;
 }
 
 /* responsive */

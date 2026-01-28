@@ -9,8 +9,10 @@
 <body>
   <div id="ui">
     <div class="row">
-      <div class="brand">PIXEL DUNGEON</div>
-      <div class="hint">WASD 이동 · 마우스 조준 · 클릭/스페이스 발사 · Shift 대시 · 우클릭 노바 · Esc 일시정지 · 1/2/3 무기전환</div>
+      <div class="brand">
+        <img class="brandLogo" src="./assets/ui/logo.svg" alt="PIXEL DUNGEON" />
+      </div>
+      <div class="hint">WASD 이동 · 마우스 조준 · 클릭/스페이스 발사 · Shift 대시 · 우클릭 무적(2초) · Esc 일시정지 · 1/2/3/4 무기전환</div>
     </div>
 
     <div class="bars">
@@ -39,9 +41,37 @@
         <div class="chip">FPS: <b id="fpsText">0</b></div>
       </div>
     </div>
+
   </div>
 
   <canvas id="game"></canvas>
+
+  <!-- Bottom HUD docks -->
+  <div id="hudWeaponsDock" class="hudDock hudDock--left" aria-label="Weapons">
+    <div class="hudCard hudCard--wep" id="hudWeapons"></div>
+  </div>
+
+  <div id="hudSkillsDock" class="hudDock hudDock--right" aria-label="Skills">
+    <div class="hudCard hudCard--skills">
+      <div class="skill" id="skillDash" title="Dash (Shift)">
+        <div class="skillTop">
+          <span class="skillKey">Shift</span>
+          <span class="skillName">Dash</span>
+          <span class="skillTime" id="dashCdText">READY</span>
+        </div>
+        <div class="skillTrack"><div class="skillFill" id="dashCdFill"></div></div>
+      </div>
+
+      <div class="skill" id="skillAegis" title="Aegis (RMB)">
+        <div class="skillTop">
+          <span class="skillKey">RMB</span>
+          <span class="skillName">Aegis</span>
+          <span class="skillTime" id="aegisCdText">READY</span>
+        </div>
+        <div class="skillTrack"><div class="skillFill alt" id="aegisCdFill"></div></div>
+      </div>
+    </div>
+  </div>
 
   <!-- 오버레이: 메뉴/일시정지/레벨업/튜토리얼 -->
   <div id="overlay" class="overlay hidden" aria-hidden="true">
@@ -114,9 +144,22 @@
         <button id="btnStart" class="btn primary">시작</button>
         <button id="btnResume" class="btn">계속하기</button>
         <button id="btnRestart" class="btn ghost">재시작</button>
+        <button id="btnReset" class="btn danger" type="button">진짜 초기화</button>
       </div>
 
       <div class="small">팁: 메뉴에서 난이도·무기·설정을 바꾸고 시작하세요.</div>
+    </div>
+  </div>
+
+  <!-- Confirm modal (Reset Progress) -->
+  <div id="confirm" class="confirm hidden" aria-hidden="true">
+    <div class="confirmPanel" role="dialog" aria-modal="true" aria-label="Confirm">
+      <h3 id="confirmTitle">초기화</h3>
+      <p id="confirmDesc">진짜 초기화 하겠습니까? (기록/해금/설정 포함 전부 삭제)</p>
+      <div class="confirmActions">
+        <button id="confirmNo" class="btn">취소</button>
+        <button id="confirmYes" class="btn danger">초기화</button>
+      </div>
     </div>
   </div>
 

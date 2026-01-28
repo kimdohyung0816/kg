@@ -40,9 +40,36 @@ function saveMeta(meta) {
 
 function diffProfile(key) {
   const k = String(key || "normal");
-  if (k === "easy") return { key: "easy", enemyHpMult: 0.85, enemyDmgMult: 0.85, spawnIntervalMult: 1.15, scoreMult: 0.90, label: "Easy", desc: "입문자용. 적이 약하고 스폰이 느립니다." };
-  if (k === "hard") return { key: "hard", enemyHpMult: 1.18, enemyDmgMult: 1.15, spawnIntervalMult: 0.85, scoreMult: 1.12, label: "Hard", desc: "숙련자용. 적이 강하고 스폰이 빠릅니다." };
+  if (k === "easy") return { key: "easy", enemyHpMult: 0.90, enemyDmgMult: 0.90, spawnIntervalMult: 1.10, scoreMult: 0.90, label: "Easy", desc: "입문자용. 적이 약하고 스폰이 느립니다." };
+  // NOTE: user request: even Hard felt too easy -> harder scaling
+  if (k === "hard") return { key: "hard", enemyHpMult: 1.75, enemyDmgMult: 1.55, spawnIntervalMult: 0.65, scoreMult: 1.35, label: "Hard", desc: "숙련자용(강화). 적이 매우 강하고 스폰이 매우 빠릅니다." };
   return { key: "normal", enemyHpMult: 1.0, enemyDmgMult: 1.0, spawnIntervalMult: 1.0, scoreMult: 1.0, label: "Normal", desc: "밸런스형. 기본 추천." };
+}
+
+// asset helpers (module-relative)
+function assetURL(rel) {
+  try {
+    return new URL(rel, import.meta.url).toString();
+  } catch {
+    return rel;
+  }
+}
+function loadImg(rel) {
+  const img = new Image();
+  img.src = assetURL(rel);
+  return img;
+}
+function canDrawImg(img) {
+  return img && img.complete && img.naturalWidth > 0;
+}
+function drawSprite(ctx, img, x, y, w, h, alpha = 1) {
+  if (!canDrawImg(img)) return false;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, x - w / 2, y - h / 2, w, h);
+  ctx.restore();
+  return true;
 }
 
 /* =========================
@@ -298,15 +325,18 @@ class Pickup {
    Combat entities
    ========================= */
 class Bullet {
-  constructor(x, y, vx, vy, dmg, pierce = 0, r = 4, owner = "player") {
+  constructor(x, y, vx, vy, dmg, pierce = 0, r = 4, owner = "player", opts = null) {
     this.x = x; this.y = y;
     this.vx = vx; this.vy = vy;
     this.dmg = dmg;
     this.pierce = pierce;
     this.r = r;
     this.owner = owner;
+    this.opts = opts || {};
     this.t = 0;
-    this.life = 1.6;
+    this.life = (this.opts && typeof this.opts.life === "number")
+      ? this.opts.life
+      : (this.opts?.bolt ? 2.2 : 1.6);
   }
   update(dt) {
     this.t += dt;
@@ -315,7 +345,7 @@ class Bullet {
   }
   get dead() { return this.t >= this.life; }
   draw(ctx) {
-    ctx.fillStyle = "rgba(255,246,232,.92)";
+    ctx.fillStyle = this.opts?.bolt ? "rgba(210,177,106,.92)" : "rgba(255,246,232,.92)";
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
     ctx.fill();
@@ -356,35 +386,47 @@ class Enemy {
     this.t = 0;
     this.hitFlash = 0;
 
+    const bonus = Math.max(0, wave - 5);
+
     if (kind === "chaser") {
       this.r = 16;
-      this.maxHp = 70 + wave * 6;
+      this.maxHp = 80 + wave * 9 + bonus * 12;
       this.touch = 12;
-      this.speed = 115 + wave * 2.5;
+      this.speed = 120 + wave * 3.0 + bonus * 2.0;
     } else if (kind === "charger") {
       this.r = 18;
-      this.maxHp = 95 + wave * 8;
+      this.maxHp = 110 + wave * 12 + bonus * 16;
       this.touch = 16;
-      this.speed = 95 + wave * 2.0;
+      this.speed = 98 + wave * 2.2 + bonus * 1.2;
       this.chargeCd = rand(1.2, 2.2);
       this.chargeT = 0;
     } else if (kind === "gunner") {
       this.r = 17;
-      this.maxHp = 85 + wave * 7;
+      this.maxHp = 100 + wave * 10 + bonus * 14;
       this.touch = 12;
-      this.speed = 92 + wave * 1.6;
-      this.shootCd = rand(0.7, 1.1);
+      this.speed = 92 + wave * 1.8 + bonus * 0.8;
+      this.shootCd = rand(0.55, 0.90);
     } else if (kind === "bomber") {
       this.r = 18;
-      this.maxHp = 80 + wave * 6;
+      this.maxHp = 95 + wave * 9 + bonus * 13;
       this.touch = 14;
-      this.speed = 110 + wave * 2.2;
-      this.fuse = rand(3.2, 4.4);
+      this.speed = 112 + wave * 2.4 + bonus * 1.2;
+      this.fuse = rand(2.4, 3.6);
+    } else if (kind === "boss2") {
+      this.r = 38;
+      this.maxHp = 1800 + wave * 190 + bonus * 260;
+      this.touch = 26;
+      this.speed = 76 + wave * 1.6;
+      this.phase = 0;
+      this.ringCd = 1.25;
+      this.summonCd = 2.8;
+      this.teleCd = 4.2;
+      this.shootCd = 0.45;
     } else { // boss
       this.r = 34;
-      this.maxHp = 900 + wave * 120;
+      this.maxHp = 1100 + wave * 160 + bonus * 200;
       this.touch = 22;
-      this.speed = 70 + wave * 1.2;
+      this.speed = 72 + wave * 1.5;
       this.phase = 0;
       this.shootCd = 0.65;
       this.chargeCd = 2.2;
@@ -514,6 +556,80 @@ class Enemy {
       }
     }
 
+    if (this.kind === "boss2") {
+      // FINAL BOSS: ring shots + summon + teleport
+      this.ringCd -= dt;
+      this.summonCd -= dt;
+      this.teleCd -= dt;
+      this.shootCd -= dt;
+
+      // keep some distance and strafe around player
+      const desired = clamp((d - 320) / 220, -1, 1);
+      const wob = Math.sin(this.t * 0.9) * 0.9;
+      const tx = nx * this.speed * desired + (-ny) * this.speed * 0.85 * wob;
+      const ty = ny * this.speed * desired + (nx) * this.speed * 0.85 * wob;
+      this.vx = lerp(this.vx, tx, clamp(4.2 * dt, 0, 1));
+      this.vy = lerp(this.vy, ty, clamp(4.2 * dt, 0, 1));
+
+      if (this.ringCd <= 0) {
+        this.ringCd = 1.05;
+        const n = 10;
+        const base = Math.atan2(dy, dx);
+        for (let i = 0; i < n; i++) {
+          const a = base + (i / n) * Math.PI * 2;
+          const vx = Math.cos(a) * 360;
+          const vy = Math.sin(a) * 360;
+          const dmg = Math.floor(14 * (game.diff?.enemyDmgMult || 1));
+          game.enemyBullets.push(new Bullet(this.x, this.y, vx, vy, dmg, 0, 4.4, "enemy"));
+        }
+        game.audio.play("bossRing", 180, 0.09, "triangle", 0.08, 0.12);
+      }
+
+      if (this.shootCd <= 0 && d < 720) {
+        this.shootCd = 0.55;
+        // 2 aimed bolts
+        const a = Math.atan2(dy, dx);
+        for (let i = -1; i <= 1; i += 2) {
+          const aa = a + i * 0.08;
+          const vx = Math.cos(aa) * 520;
+          const vy = Math.sin(aa) * 520;
+          const dmg = Math.floor(17 * (game.diff?.enemyDmgMult || 1));
+          game.enemyBullets.push(new Bullet(this.x, this.y, vx, vy, dmg, 0, 5.0, "enemy"));
+        }
+      }
+
+      if (this.summonCd <= 0) {
+        this.summonCd = 2.65;
+        for (let i = 0; i < 2; i++) {
+          const a = rand(0, Math.PI * 2);
+          const rx = this.x + Math.cos(a) * rand(46, 78);
+          const ry = this.y + Math.sin(a) * rand(46, 78);
+          game.spawnEnemyAt("chaser", rx, ry);
+        }
+        game.floaters.push(new Floater(this.x - 42, this.y - this.r - 24, "SUMMON", 0.75, "rgba(210,177,106,.95)"));
+      }
+
+      if (this.teleCd <= 0) {
+        this.teleCd = 4.6;
+        // blink behind player (safe within arena)
+        const a = Math.atan2(-dy, -dx);
+        const nx2 = Math.cos(a), ny2 = Math.sin(a);
+        const tx = p.x + nx2 * 260;
+        const ty = p.y + ny2 * 260;
+        const ar = game.arena;
+        const ddx = tx - ar.x, ddy = ty - ar.y;
+        const dist = Math.hypot(ddx, ddy) || 1;
+        const limit = ar.r - this.r - 10;
+        const fx = dist > limit ? (ar.x + ddx / dist * limit) : tx;
+        const fy = dist > limit ? (ar.y + ddy / dist * limit) : ty;
+        game.spawnHit(this.x, this.y, 26);
+        this.x = fx; this.y = fy;
+        this.vx = 0; this.vy = 0;
+        game.spawnHit(this.x, this.y, 26);
+        game.audio.play("tele", 720, 0.07, "sine", 0.05, 0.08);
+      }
+    }
+
     this.x += this.vx * dt;
     this.y += this.vy * dt;
 
@@ -542,19 +658,28 @@ class Enemy {
     if (this.kind === "gunner") base = "rgba(122,168,255,.92)";
     if (this.kind === "bomber") base = "rgba(255,111,111,.90)";
     if (this.kind === "boss") base = "rgba(210,177,106,.95)";
+    if (this.kind === "boss2") base = "rgba(107,74,134,.94)";
 
     if (this.hitFlash > 0) base = "rgba(255,246,232,.98)";
 
-    ctx.fillStyle = base;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
-    ctx.fill();
+    // sprite-first
+    const key = (this.kind === "boss" ? "boss" : (this.kind === "boss2" ? "boss2" : this.kind));
+    const img = game?.assets?.sprite?.[key];
+    const scale = (this.kind === "boss" || this.kind === "boss2") ? 2.6 : 2.2;
+    const used = drawSprite(ctx, img, this.x, this.y, this.r * scale, this.r * scale, this.hitFlash > 0 ? 0.85 : 1);
 
-    ctx.strokeStyle = edge;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.r + 1.2, 0, Math.PI * 2);
-    ctx.stroke();
+    if (!used) {
+      ctx.fillStyle = base;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = edge;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r + 1.2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
     // hp bar
     ctx.globalAlpha = 0.8;
@@ -585,9 +710,10 @@ class Player {
     this.accel = 12.0;
 
     this.stats = {
-      damage: 22,
-      fireRate: 8.0,
-      bulletSpeed: 520,
+      damage: 20,
+      // fireRate is a multiplier (x1.00 = baseline)
+      fireRate: 1.0,
+      bulletSpeed: 540,
       spread: 0.035,
       pierce: 0,
       bulletSize: 4.2,
@@ -599,13 +725,14 @@ class Player {
       xpMult: 1.0,
       dashCdMult: 1.0,
 
-      pellets: 6,
+      // skill cooldown multiplier (Aegis)
+      skillCdMult: 1.0,
+      // Aegis duration (seconds)
+      aegisDur: 2.0,
+
+      pellets: 5,
       shotgunSpread: 0.22,
       railWidth: 10,
-
-      // skills
-      energyRegen: 1.0,
-      novaDmg: 1.0,
 
       // orbiting orbs
       orbs: 0,
@@ -615,15 +742,19 @@ class Player {
     this.weapons = new Set(["pistol"]);
     this.weapon = "pistol";
 
-    // dash / invuln
+    // dash / iframes / aegis / cooldowns
     this.dashCd = 0;
+    this.dashCdMax = 5;
     this.dashTime = 0;
-    this.invuln = 0;
+    // short i-frames used by dash / getting hit
+    this.iframes = 0;
+    // Aegis (RMB) true invulnerability duration
+    this.aegis = 0;
+    // visual-only flash when damaged (separate from Aegis)
+    this.hurtFlash = 0;
 
-    // skill energy
-    this.energy = 100;
-    this.maxEnergy = 100;
-    this.novaCd = 0;
+    this.aegisCd = 0;
+    this.aegisCdMax = 30;
 
     this.xp = 0;
     this.level = 1;
@@ -642,6 +773,7 @@ class Player {
     if (this.weapon === "pistol") return "Pistol(1)";
     if (this.weapon === "shotgun") return "Shotgun(2)";
     if (this.weapon === "rail") return "Rail Beam(3)";
+    if (this.weapon === "crossbow") return "Crossbow(4)";
     return this.weapon;
   }
 
@@ -666,13 +798,15 @@ class Player {
     if (inp.k("1")) this.setWeapon("pistol");
     if (inp.k("2")) this.setWeapon("shotgun");
     if (inp.k("3")) this.setWeapon("rail");
+    if (inp.k("4")) this.setWeapon("crossbow");
 
-    // dash
+    // dash (base 5s cooldown; upgrades reduce)
     const wantDash = inp.k("shift") && this.dashCd <= 0 && this.dashTime <= 0;
     if (wantDash) {
       this.dashTime = 0.18;
-      this.dashCd = 0.9 * (this.stats?.dashCdMult || 1);
-      this.invuln = Math.max(this.invuln, 0.22);
+      this.dashCdMax = 5.0 * (this.stats?.dashCdMult || 1);
+      this.dashCd = this.dashCdMax;
+      this.iframes = Math.max(this.iframes, 0.18);
       game.camera.kick(10);
       game.audio.play("dash", 180, 0.07, "sawtooth", 0.07, 0.12);
       for (let i = 0; i < 18; i++) {
@@ -681,7 +815,7 @@ class Player {
         game.particles.push(new Particle(this.x, this.y, Math.cos(a) * sp, Math.sin(a) * sp, 0.35, rand(1.6, 2.6), "rgba(255,210,122,.85)"));
       }
     }
-    this.dashCd -= dt;
+    this.dashCd = Math.max(0, this.dashCd - dt);
 
     // movement
     let mx = 0, my = 0;
@@ -713,7 +847,9 @@ class Player {
     }
 
     this.dashTime -= dt;
-    this.invuln -= dt;
+    this.iframes = Math.max(0, this.iframes - dt);
+    this.aegis = Math.max(0, this.aegis - dt);
+    this.hurtFlash = Math.max(0, this.hurtFlash - dt);
 
     // aim (world coords)
     const aimx = game.input.mouse.x + (this.x - game.cx);
@@ -725,25 +861,42 @@ class Player {
     // shooting
     const wantShoot = game.input.mouse.down || inp.k(" ");
     this._shootCd -= dt;
-    const fireEvery = 1 / Math.max(1, this.stats.fireRate);
     if (wantShoot && this._shootCd <= 0) {
-      this._shootCd = fireEvery;
+      this._shootCd = this.fireInterval();
       this.shoot(game, a);
     }
 
-    // skill: nova (right click)
-    this.energy = Math.min(this.maxEnergy, this.energy + 26 * (this.stats.energyRegen || 1) * dt);
-    this.novaCd -= dt;
-    if (game.input.mouse.right && this.novaCd <= 0 && this.energy >= 40) {
-      this.novaCd = 0.45;
-      this.energy -= 40;
-      game.castNova(this);
+    // skill: Aegis (right click) - 2s invulnerability, 30s cooldown (upgrades reduce)
+    this.aegisCd = Math.max(0, this.aegisCd - dt);
+    if (game.input.mouse.right && this.aegisCd <= 0 && !game.overlayOpen) {
+      const dur = Math.max(0.2, (this.stats?.aegisDur || 2.0));
+      this.aegis = Math.max(this.aegis, dur);
+      this.aegisCdMax = 30.0 * (this.stats?.skillCdMult || 1);
+      this.aegisCd = this.aegisCdMax;
+      game.camera.kick(7);
+      game.audio.play("aegis", 260, 0.09, "triangle", 0.07, 0.10);
+      for (let i = 0; i < 28; i++) {
+        const ang = rand(0, Math.PI * 2);
+        const sp = rand(90, 260);
+        game.particles.push(new Particle(this.x, this.y, Math.cos(ang) * sp, Math.sin(ang) * sp, 0.55, rand(1.6, 2.6), "rgba(255,246,232,.85)"));
+      }
     }
 
     // orbs
     if ((this.stats.orbs || 0) > 0) {
       game.updateOrbs(this, dt);
     }
+  }
+
+  fireInterval() {
+    const st = this.stats;
+    const fr = Math.max(0.1, st.fireRate || 1);
+    // weapon balance: pistol = stable, shotgun = close burst, rail = line clear (slow), crossbow = boss DPS (slow)
+    if (this.weapon === "shotgun") return 0.72 / fr;
+    if (this.weapon === "crossbow") return 0.62 / (fr * (st.xbowRate || 1));
+    if (this.weapon === "rail") return 0.95 / fr;
+    // pistol default
+    return 0.16 / fr;
   }
 
   shoot(game, ang) {
@@ -768,21 +921,39 @@ class Player {
     }
 
     if (this.weapon === "shotgun") {
-      const pellets = Math.max(4, Math.floor(st.pellets || 6));
-      const sp = st.shotgunSpread || 0.22;
+      // Close-range burst: pellets disappear fast so it's weak at long range
+      const pellets = Math.max(4, Math.floor(st.pellets || 5));
+      const sp = st.shotgunSpread || 0.24;
       for (let i = 0; i < pellets; i++) {
         const a = ang + rand(-sp, sp);
-        const vx = Math.cos(a) * (speed * rand(0.92, 1.06));
-        const vy = Math.sin(a) * (speed * rand(0.92, 1.06));
-        game.bullets.push(new Bullet(this.x, this.y, vx, vy, Math.floor(dmg * 0.55), pierce, r * 0.92, "player"));
+        const vx = Math.cos(a) * (speed * rand(0.78, 0.92));
+        const vy = Math.sin(a) * (speed * rand(0.78, 0.92));
+        game.bullets.push(new Bullet(this.x, this.y, vx, vy, Math.floor(dmg * 0.45), pierce, r * 0.90, "player", { life: 0.55 }));
       }
       game.audio.play("shotgun", 260, 0.06, "square", 0.08, 0.06);
       return;
     }
 
+    if (this.weapon === "crossbow") {
+      const bolts = clamp(Math.floor(st.xbowBolts ?? 1), 1, 3);
+      const extraPierce = Math.floor(st.xbowPierce ?? 0);
+      const boltPierce = pierce + extraPierce;
+      const sp = Math.max(0.02, spread * 0.55);
+      for (let i = 0; i < bolts; i++) {
+        const a = ang + rand(-sp, sp) + (i - (bolts - 1) / 2) * 0.05;
+        const vx = Math.cos(a) * (speed * 1.02);
+        const vy = Math.sin(a) * (speed * 1.02);
+        // High single-target, slow rate: good vs bosses, not a room sweeper
+        game.bullets.push(new Bullet(this.x, this.y, vx, vy, Math.floor(dmg * 1.20), boltPierce, r * 1.05, "player", { bolt: true, life: 2.0 }));
+      }
+      game.camera.kick(3);
+      game.audio.play("crossbow", 330, 0.07, "sawtooth", 0.06, 0.06);
+      return;
+    }
+
     if (this.weapon === "rail") {
       // instant beam damage on line
-      const len = 760;
+      const len = 720;
       const bx = this.x + Math.cos(ang) * len;
       const by = this.y + Math.sin(ang) * len;
       const width = Math.max(6, st.railWidth || 10);
@@ -791,7 +962,8 @@ class Player {
       for (const e of game.enemies) {
         const distSq = distToSegmentSq(e.x, e.y, this.x, this.y, bx, by);
         if (distSq < (e.r + width) * (e.r + width)) {
-          e.hit(game, Math.floor(dmg * 1.35));
+          // Line clear (slow): reduced per-hit multiplier to prevent being OP
+          e.hit(game, Math.floor(dmg * 1.05));
         }
       }
 
@@ -803,25 +975,46 @@ class Player {
   }
 
   draw(ctx, game) {
-    // body
-    ctx.fillStyle = "rgba(255,246,232,.92)";
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
-    ctx.fill();
+    // body (sprite-first)
+    // visuals: Aegis (gold/white) and Hit flash (red) are distinct
+    const alpha = (this.aegis > 0.01) ? 0.85 : (this.hurtFlash > 0.01 ? 0.90 : 1);
+    const used = drawSprite(ctx, game?.assets?.sprite?.player, this.x, this.y, this.r * 3.0, this.r * 3.0, alpha);
+    if (!used) {
+      ctx.fillStyle = "rgba(255,246,232,.92)";
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+      ctx.fill();
 
-    ctx.strokeStyle = "rgba(0,0,0,.75)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.r + 1.2, 0, Math.PI * 2);
-    ctx.stroke();
+      ctx.strokeStyle = "rgba(0,0,0,.75)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r + 1.2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
-    // weapon hint / energy
-    ctx.globalAlpha = 0.75;
-    ctx.fillStyle = "rgba(0,0,0,.40)";
-    ctx.fillRect(this.x - 44, this.y + 22, 88, 8);
-    ctx.fillStyle = "rgba(255,210,122,.85)";
-    ctx.fillRect(this.x - 44, this.y + 22, 88 * (this.energy / this.maxEnergy), 8);
-    ctx.globalAlpha = 1;
+    // Aegis ring (gold/white)
+    if (this.aegis > 0.01) {
+      const pulse = 0.5 + 0.5 * Math.sin((performance.now() || 0) * 0.01);
+      ctx.globalAlpha = 0.70;
+      ctx.strokeStyle = `rgba(255,210,122,${0.85 - pulse * 0.25})`;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r + 10 + pulse * 2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // Hit flash ring (red) - separate from Aegis
+    if (this.hurtFlash > 0.01 && this.aegis <= 0.01) {
+      const a = clamp(this.hurtFlash / 0.20, 0, 1);
+      ctx.globalAlpha = 0.85 * a;
+      ctx.strokeStyle = "rgba(255,111,111,.95)";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r + 8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
   }
 }
 
@@ -839,6 +1032,7 @@ function distToSegmentSq(px, py, ax, ay, bx, by) {
 /* =========================
    Game
    ========================= */
+const MAX_WAVE = 10;
 export class Game {
   constructor(canvas) {
     this.canvas = canvas;
@@ -849,6 +1043,28 @@ export class Game {
     this.input = new Input(canvas);
     this.camera = new Camera();
     this.audio = new AudioBus();
+
+    // pixel sprite pack (optional fallbacks)
+    this.assets = {
+      ui: {
+        pistol: loadImg("../assets/ui/icon_pistol.svg"),
+        shotgun: loadImg("../assets/ui/icon_shotgun.svg"),
+        rail: loadImg("../assets/ui/icon_rail.svg"),
+        crossbow: loadImg("../assets/ui/icon_crossbow.svg"),
+      },
+      sprite: {
+        player: loadImg("../assets/sprites/player.svg"),
+        chaser: loadImg("../assets/sprites/enemy_chaser.svg"),
+        charger: loadImg("../assets/sprites/enemy_charger.svg"),
+        gunner: loadImg("../assets/sprites/enemy_gunner.svg"),
+        bomber: loadImg("../assets/sprites/enemy_bomber.svg"),
+        boss: loadImg("../assets/sprites/boss1.svg"),
+        boss2: loadImg("../assets/sprites/boss2.svg"),
+        xp: loadImg("../assets/sprites/pickup_xp.svg"),
+        hp: loadImg("../assets/sprites/pickup_hp.svg"),
+        sh: loadImg("../assets/sprites/pickup_sh.svg"),
+      }
+    };
 
     this.cx = this.canvas.width / 2;
     this.cy = this.canvas.height / 2;
@@ -872,6 +1088,46 @@ export class Game {
     // overlay buttons
     ui.btnResume.addEventListener("click", () => this.closeOverlay());
     ui.btnRestart.addEventListener("click", () => { this.reset(); this.openMenu(); });
+
+    // full reset (clear progress)
+    if (ui.btnReset && ui.confirmOverlay && ui.confirmYes && ui.confirmNo) {
+      const openConfirm = () => {
+        this.audio.resume();
+        ui.confirmOverlay.hidden = false;
+        this.audio.play("click", 240, 0.06, "square", 0.03, 0.04);
+      };
+      const closeConfirm = () => {
+        ui.confirmOverlay.hidden = true;
+      };
+      ui.btnReset.addEventListener("click", openConfirm);
+      ui.confirmNo.addEventListener("click", () => { closeConfirm(); this.audio.play("click", 220, 0.05, "square", 0.03, 0.04); });
+      ui.confirmOverlay.addEventListener("click", (e) => {
+        if (e.target === ui.confirmOverlay) closeConfirm();
+      });
+      ui.confirmYes.addEventListener("click", () => {
+        // wipe meta and reload for a clean slate
+        localStorage.removeItem(META_KEY);
+        location.reload();
+      });
+    }
+
+    // in-game weapon HUD (click to switch)
+    if (ui.hudWeapons) {
+      ui.hudWeapons.addEventListener("click", (e) => {
+        const b = e.target.closest("button[data-weapon]");
+        if (!b) return;
+        const w = b.dataset.weapon;
+        this.audio.resume();
+        if (!this.player.weapons.has(w)) {
+          this.audio.play("locked", 140, 0.08, "square", 0.05, 0.08);
+          return;
+        }
+        this.player.setWeapon(w);
+        this.meta.lastWeapon = w;
+        saveMeta(this.meta);
+        this.audio.play("pick", 520, 0.05, "triangle", 0.05, 0.05);
+      });
+    }
 
     if (ui.btnStart) {
       ui.btnStart.onclick = () => {
@@ -950,6 +1206,9 @@ export class Game {
     for (const w of (this.meta.unlockedWeapons || ["pistol"])) this.player.unlockWeapon(w);
     this.player.setWeapon(this.meta.lastWeapon || "pistol");
 
+    // in-game weapon HUD buttons
+    this._renderWeaponHud();
+
     this.enemies = [];
     this.bullets = [];
     this.enemyBullets = [];
@@ -960,12 +1219,20 @@ export class Game {
 
     this.orbState = { list: [], cd: 0 };
 
-    this.build = { upgrades: [] };
+    this.build = {
+      upgrades: [],
+      byKey: Object.create(null),
+      rarityCounts: { common: 0, rare: 0, epic: 0 },
+      total: 0,
+    };
 
     this.wave = 1;
     this.toSpawn = 8;
     this.spawnTimer = 0;
     this.spawnRate = 0.22 * (this.diff?.spawnIntervalMult || 1);
+
+    // boss-wave guard (prevents immediate respawn on same frame as boss death)
+    this.bossSpawned = false;
 
     this.overlayOpen = false;
     this.overlayMode = "pause";
@@ -1037,11 +1304,11 @@ export class Game {
         </div>
         <div class="tutCard">
           <div class="t">공격</div>
-          <div class="d">마우스로 조준 · 클릭/스페이스로 발사 · 1/2/3으로 무기 전환</div>
+          <div class="d">마우스로 조준 · 클릭/스페이스로 발사 · 1/2/3/4로 무기 전환</div>
         </div>
         <div class="tutCard">
-          <div class="t">스킬: 노바</div>
-          <div class="d">우클릭으로 주변에 광역 피해(에너지 소모). 에너지는 자동 회복</div>
+          <div class="t">스킬: Aegis</div>
+          <div class="d">우클릭으로 2초 무적(30초 쿨, 업그레이드로 감소). 대시도 업그레이드로 쿨 감소</div>
         </div>
         <div class="tutCard">
           <div class="t">성장</div>
@@ -1081,9 +1348,29 @@ export class Game {
     this.overlayMode = "dead";
     this._renderOverlay({
       title: "Game Over",
-      desc: `Wave ${this.wave} · Score ${this.player.score} · 레벨 ${this.player.level}`,
+      desc: `Wave ${this.wave}/${MAX_WAVE} · Score ${this.player.score} · 레벨 ${this.player.level}`,
       choices: []
     });
+  }
+
+  openWin() {
+    if (this.overlayOpen && this.overlayMode === "win") return;
+    this.overlayOpen = true;
+    this.overlayMode = "win";
+
+    // persist unlocks + best records
+    this._syncUnlockToMeta();
+    if (this.player.score > (this.meta.bestScore || 0)) this.meta.bestScore = this.player.score;
+    if (MAX_WAVE > (this.meta.bestWave || 0)) this.meta.bestWave = MAX_WAVE;
+    saveMeta(this.meta);
+    this._renderMenuMeta();
+
+    this._renderOverlay({
+      title: "VICTORY!",
+      desc: `Wave ${MAX_WAVE}/${MAX_WAVE} Clear · Score ${this.player.score} · 레벨 ${this.player.level}`,
+      choices: []
+    });
+    this.audio.play("victory", 520, 0.14, "triangle", 0.10, 0.28);
   }
 
   openLevelUp() {
@@ -1146,7 +1433,7 @@ export class Game {
     // buttons
     if (this.ui.btnStart) this.ui.btnStart.style.display = (showMenu || showTutorial) ? "inline-block" : "none";
     if (this.ui.btnResume) this.ui.btnResume.style.display = (this.overlayMode === "pause") ? "inline-block" : "none";
-    if (this.ui.btnRestart) this.ui.btnRestart.style.display = (this.overlayMode === "pause" || this.overlayMode === "dead") ? "inline-block" : "none";
+    if (this.ui.btnRestart) this.ui.btnRestart.style.display = (this.overlayMode === "pause" || this.overlayMode === "dead" || this.overlayMode === "win") ? "inline-block" : "none";
 
     // fill menu meta
     if (showMenu || showTutorial) this._renderMenuMeta();
@@ -1198,10 +1485,37 @@ export class Game {
   }
 
   _recordUpgrade(u) {
-    if (!this.build) this.build = { upgrades: [] };
-    if (!this.build.upgrades) this.build.upgrades = [];
-    this.build.upgrades.push({
-      key: u.key, title: u.title, desc: u.desc, tag: u.tag, rarity: u.rarity || "common",
+    if (!this.build) {
+      this.build = { upgrades: [], byKey: Object.create(null), rarityCounts: { common: 0, rare: 0, epic: 0 }, total: 0 };
+    }
+    const b = this.build;
+    if (!b.upgrades) b.upgrades = [];
+    if (!b.byKey) b.byKey = Object.create(null);
+    if (!b.rarityCounts) b.rarityCounts = { common: 0, rare: 0, epic: 0 };
+
+    b.total = (b.total || 0) + 1;
+    const key = String(u.key || "");
+    const rar = String(u.rarity || "common");
+
+    // per-upgrade level count
+    if (!b.byKey[key]) {
+      b.byKey[key] = { title: u.title, rarity: rar, count: 0 };
+    }
+    b.byKey[key].count += 1;
+    const lv = b.byKey[key].count;
+
+    // rarity count
+    if (b.rarityCounts[rar] != null) b.rarityCounts[rar] += 1;
+
+    // record pick order + Lv
+    b.upgrades.push({
+      idx: b.total,
+      key,
+      title: u.title,
+      desc: u.desc,
+      tag: u.tag,
+      rarity: rar,
+      lv,
     });
   }
 
@@ -1212,6 +1526,7 @@ export class Game {
     this.meta.unlockedWeapons = Array.from(list);
     saveMeta(this.meta);
     this._renderMenuMeta();
+    this._renderWeaponHud();
   }
 
   _renderMenuMeta() {
@@ -1227,9 +1542,10 @@ export class Game {
     if (this.ui.weaponPills) {
       const unlocked = new Set(this.meta.unlockedWeapons || ["pistol"]);
       const all = [
-        { k: "pistol", label: "Pistol (1)" },
-        { k: "shotgun", label: "Shotgun (2)" },
-        { k: "rail", label: "Rail (3)" },
+        { k: "pistol", label: "Pistol (1)", icon: "./assets/ui/icon_pistol.svg" },
+        { k: "shotgun", label: "Shotgun (2)", icon: "./assets/ui/icon_shotgun.svg" },
+        { k: "rail", label: "Rail (3)", icon: "./assets/ui/icon_rail.svg" },
+        { k: "crossbow", label: "Crossbow (4)", icon: "./assets/ui/icon_crossbow.svg" },
       ];
       this.ui.weaponPills.innerHTML = "";
       for (const it of all) {
@@ -1238,7 +1554,10 @@ export class Game {
         if (it.k === (this.meta.lastWeapon || "pistol")) b.classList.add("is-active");
         if (!unlocked.has(it.k)) b.classList.add("is-locked");
         b.type = "button";
-        b.textContent = unlocked.has(it.k) ? it.label : `${it.label} (Locked)`;
+        b.innerHTML = `
+          <img class="pillIcon" src="${it.icon}" alt="" />
+          <span class="pillText">${unlocked.has(it.k) ? it.label : `${it.label} (Locked)`}</span>
+        `;
         b.addEventListener("click", () => {
           this.audio.resume();
           if (!unlocked.has(it.k)) {
@@ -1248,7 +1567,7 @@ export class Game {
           }
           this.setStartWeapon(it.k);
           this.audio.play("pick", 520, 0.05, "triangle", 0.05, 0.05);
-          if (this.ui.weaponDesc) this.ui.weaponDesc.textContent = `${it.label} 로 시작합니다. 게임 중에도 1/2/3으로 전환 가능.`;
+          if (this.ui.weaponDesc) this.ui.weaponDesc.textContent = `${it.label} 로 시작합니다. 게임 중에도 1/2/3/4로 전환 가능.`;
         });
         this.ui.weaponPills.appendChild(b);
       }
@@ -1261,6 +1580,7 @@ export class Game {
         { k: "pistol", label: "Pistol" },
         { k: "shotgun", label: "Shotgun" },
         { k: "rail", label: "Rail Beam" },
+        { k: "crossbow", label: "Crossbow" },
       ];
       this.ui.unlockRow.innerHTML = chips.map(c => {
         const ok = unlocked.has(c.k);
@@ -1279,6 +1599,26 @@ export class Game {
     }
   }
 
+  _renderWeaponHud() {
+    if (!this.ui?.hudWeapons) return;
+
+    const all = [
+      { k: "pistol", label: "1", icon: "./assets/ui/icon_pistol.svg" },
+      { k: "shotgun", label: "2", icon: "./assets/ui/icon_shotgun.svg" },
+      { k: "rail", label: "3", icon: "./assets/ui/icon_rail.svg" },
+      { k: "crossbow", label: "4", icon: "./assets/ui/icon_crossbow.svg" },
+    ];
+
+    this.ui.hudWeapons.innerHTML = all.map(w => {
+      return `
+        <button class="wBtn" type="button" data-weapon="${w.k}" aria-label="${w.k}" title="${w.k.toUpperCase()} (${w.label})">
+          <img src="${w.icon}" alt="" />
+          <span class="kbd">${w.label}</span>
+        </button>
+      `;
+    }).join("");
+  }
+
   _renderBuildSummary() {
     if (!this.ui?.buildSummary) return;
 
@@ -1289,11 +1629,14 @@ export class Game {
       if (w === "pistol") return "Pistol(1)";
       if (w === "shotgun") return "Shotgun(2)";
       if (w === "rail") return "Rail(3)";
+      if (w === "crossbow") return "Crossbow(4)";
       return w;
     }).join(", ");
 
     const fmt = (n) => (Math.round(n * 100) / 100).toString();
     const pct = (n) => `${Math.round(n * 100)}%`;
+
+    const rc = this.build?.rarityCounts || { common: 0, rare: 0, epic: 0 };
 
     this.ui.buildSummary.innerHTML = `
       <div class="box">
@@ -1302,18 +1645,21 @@ export class Game {
           <div class="k">Weapon</div><div class="v">${p.weaponLabel()}</div>
           <div class="k">Unlocked</div><div class="v">${weapons || "-"}</div>
           <div class="k">Damage</div><div class="v">${fmt(st.damage ?? 0)}</div>
-          <div class="k">Fire Rate</div><div class="v">${fmt(st.fireRate ?? 0)}/s</div>
+          <div class="k">Fire Rate</div><div class="v">x${fmt(st.fireRate ?? 1)}</div>
           <div class="k">Crit</div><div class="v">${pct(st.critChance ?? 0)}</div>
           <div class="k">Crit Mult</div><div class="v">x${fmt(st.critMult ?? 0)}</div>
           <div class="k">Pierce</div><div class="v">${Math.floor(st.pierce ?? 0)}</div>
           <div class="k">XP Mult</div><div class="v">x${fmt(st.xpMult ?? 1)}</div>
           <div class="k">Magnet</div><div class="v">x${fmt(st.magnetMult ?? 1)}</div>
-          <div class="k">Nova</div><div class="v">x${fmt(st.novaDmg ?? 1)}</div>
+          <div class="k">Dash CD</div><div class="v">${fmt(5 * (st.dashCdMult ?? 1))}s</div>
+          <div class="k">Aegis CD</div><div class="v">${fmt(30 * (st.skillCdMult ?? 1))}s</div>
+          <div class="k">Aegis Dur</div><div class="v">${fmt(st.aegisDur ?? 2)}s</div>
           <div class="k">Orbs</div><div class="v">${Math.floor(st.orbs ?? 0)}</div>
         </div>
       </div>
       <div class="box">
         <h3>선택한 업그레이드 (${ups.length})</h3>
+        <div class="menuSmall">Common ${rc.common} · Rare ${rc.rare} · Epic ${rc.epic}</div>
         <div class="upList">
           ${ups.length ? ups.map(it => {
             const c = rarityColor(String(it.rarity || "common"));
@@ -1321,7 +1667,7 @@ export class Game {
               <div class="upItem">
                 <span class="upDot" style="background:${c}"></span>
                 <div class="upMeta">
-                  <div class="name">${it.title}</div>
+                  <div class="name">#${String(it.idx).padStart(2, "0")} · ${it.title} <span class="chip">Lv ${it.lv}</span></div>
                   <div class="sub">${it.desc || ""}</div>
                   <span class="chip">${it.tag || "Upgrade"}</span>
                 </div>
@@ -1366,10 +1712,14 @@ export class Game {
     // spawn logic
     this.spawnTimer += dt;
 
-    const isBossWave = (this.wave % 5 === 0);
+    const isBossWave = (this.wave === 5 || this.wave === 10);
     if (isBossWave) {
-      const hasBoss = this.enemies.some(e => e.kind === "boss");
-      if (!hasBoss) this.spawnBoss();
+      const hasBoss = this.enemies.some(e => (e.kind === "boss" || e.kind === "boss2"));
+      if (!this.bossSpawned && !hasBoss) {
+        const kind = (this.wave === MAX_WAVE ? "boss2" : "boss");
+        this.spawnBoss(kind);
+        this.bossSpawned = true;
+      }
       this.spawnTimer = 0;
       this.toSpawn = 0;
     } else {
@@ -1378,14 +1728,6 @@ export class Game {
         this.toSpawn -= 1;
         this.spawnEnemy();
       }
-    }
-
-    // wave clear
-    if (!isBossWave) {
-      if (this.toSpawn <= 0 && this.enemies.length === 0) this.nextWave();
-    } else {
-      const hasBoss = this.enemies.some(e => e.kind === "boss");
-      if (!hasBoss) this.nextWave();
     }
 
     this.player.update(this, dt);
@@ -1409,19 +1751,39 @@ export class Game {
 
     this.handleCollisions();
 
+    // wave clear (after collisions, so boss death is recognized immediately)
+    if (!isBossWave) {
+      if (this.toSpawn <= 0 && this.enemies.length === 0) {
+        this.nextWave();
+      }
+    } else {
+      const hasBoss = this.enemies.some(e => (e.kind === "boss" || e.kind === "boss2"));
+      if (this.bossSpawned && !hasBoss) {
+        if (this.wave >= MAX_WAVE) this.openWin();
+        else {
+          this.nextWave();
+        }
+      }
+    }
+
     this._uiTick(dt);
 
     if (this.player.hp <= 0) this.openDead();
   }
 
   nextWave() {
+    if (this.wave >= MAX_WAVE) return;
     this.wave += 1;
-    this.toSpawn = Math.floor(7 + this.wave * 2.2);
-    this.spawnRate = Math.max(0.08, 0.22 - this.wave * 0.01);
+
+    // boss spawn is handled on demand when wave hits 5/10
+    this.bossSpawned = false;
+    const bonus = Math.max(0, this.wave - 5);
+    this.toSpawn = Math.floor(10 + this.wave * 3.2 + bonus * 2.5);
+    this.spawnRate = Math.max(0.065, 0.20 - this.wave * 0.008);
     this.spawnRate *= (this.diff?.spawnIntervalMult || 1);
 
     this.player.sh = Math.min(this.player.maxSh, this.player.sh + 16);
-    this.floaters.push(new Floater(this.player.x - 34, this.player.y - 36, `WAVE ${this.wave}`, 0.9, "rgba(210,177,106,.95)"));
+    this.floaters.push(new Floater(this.player.x - 34, this.player.y - 36, `WAVE ${this.wave}/${MAX_WAVE}`, 0.9, "rgba(210,177,106,.95)"));
     this.audio.play("wave", 240, 0.08, "triangle", 0.06, 0.12);
   }
 
@@ -1439,6 +1801,7 @@ export class Game {
     if (w >= 5) pool.push("bomber");
     if (w >= 7) pool.push("charger", "gunner");
     if (w >= 9) pool.push("bomber", "gunner");
+    if (w >= 8) pool.push("bomber", "charger");
 
     const kind = pool[Math.floor(Math.random() * pool.length)];
     const e = new Enemy(kind, x, y, this.wave);
@@ -1450,32 +1813,52 @@ export class Game {
     e.touch = Math.floor(e.touch * dmM);
 
     this.enemies.push(e);
+
+    // hard 난이도 + 후반: 가끔 추가 스폰
+    if ((this.diff?.key === "hard") && w >= 6 && Math.random() < 0.22) {
+      const ex = x + rand(-36, 36);
+      const ey = y + rand(-36, 36);
+      this.spawnEnemyAt("chaser", ex, ey);
+    }
   }
 
-  spawnBoss() {
+  spawnEnemyAt(kind, x, y) {
+    const e = new Enemy(kind, x, y, this.wave);
+    const hpM = (this.diff?.enemyHpMult || 1);
+    const dmM = (this.diff?.enemyDmgMult || 1);
+    e.maxHp = Math.floor(e.maxHp * hpM);
+    e.hp = e.maxHp;
+    e.touch = Math.floor(e.touch * dmM);
+    this.enemies.push(e);
+    return e;
+  }
+
+  spawnBoss(kind = "boss") {
     const a = rand(0, Math.PI * 2);
     const dist = this.arena.r * 0.72;
     const x = this.arena.x + Math.cos(a) * dist;
     const y = this.arena.y + Math.sin(a) * dist;
 
-    const b = new Enemy("boss", x, y, this.wave);
+    const b = new Enemy(kind, x, y, this.wave);
     b.maxHp = Math.floor(b.maxHp * (this.diff?.enemyHpMult || 1));
     b.hp = b.maxHp;
     b.touch = Math.floor(b.touch * (this.diff?.enemyDmgMult || 1));
     this.enemies.push(b);
 
-    this.floaters.push(new Floater(this.player.x - 56, this.player.y - 42, "BOSS WAVE", 1.2, "rgba(255,210,122,.95)"));
-    this.audio.play("boss", 140, 0.12, "sawtooth", 0.10, 0.20);
+    const text = (kind === "boss2") ? "FINAL BOSS" : "BOSS WAVE";
+    const col = (kind === "boss2") ? "rgba(210,177,106,.95)" : "rgba(255,210,122,.95)";
+    this.floaters.push(new Floater(this.player.x - 62, this.player.y - 42, text, 1.2, col));
+    this.audio.play(kind === "boss2" ? "boss2" : "boss", kind === "boss2" ? 220 : 140, 0.12, "sawtooth", 0.10, 0.20);
   }
 
   _spawnPickupsOnKill(x, y, kind) {
-    const isBoss = kind === "boss";
+    const isBoss = (kind === "boss" || kind === "boss2");
     const xpTotal =
       kind === "chaser" ? 12 :
       kind === "charger" ? 18 :
       kind === "gunner" ? 16 :
       kind === "bomber" ? 16 :
-      120;
+      (kind === "boss2" ? 180 : 120);
 
     const count = isBoss ? randi(10, 14) : randi(1, 4);
     let left = xpTotal;
@@ -1521,7 +1904,8 @@ export class Game {
 
   damagePlayer(dmg) {
     const p = this.player;
-    if (p.invuln > 0) return;
+    // Aegis gives true invulnerability; dash/hit i-frames prevent rapid multi-hits
+    if (p.aegis > 0 || p.iframes > 0) return;
 
     let left = dmg;
     if (p.sh > 0) {
@@ -1531,7 +1915,8 @@ export class Game {
     }
     if (left > 0) p.hp -= left;
 
-    p.invuln = 0.22;
+    p.iframes = 0.22;
+    p.hurtFlash = 0.20;
     this.camera.kick(8);
     this.audio.play("hurt", 180, 0.08, "square", 0.08, 0.10);
 
@@ -1650,9 +2035,32 @@ export class Game {
     if (this.ui.xpFill) this.ui.xpFill.style.width = `${xpT * 100}%`;
     if (this.ui.xpText) this.ui.xpText.textContent = `${Math.floor(p.xp)}/${need}`;
 
-    if (this.ui.waveText) this.ui.waveText.textContent = String(this.wave);
+    if (this.ui.waveText) this.ui.waveText.textContent = `${this.wave}/${MAX_WAVE}`;
     if (this.ui.lvlText) this.ui.lvlText.textContent = String(p.level);
     if (this.ui.scoreText) this.ui.scoreText.textContent = String(p.score);
+
+    // cooldown HUD (skills)
+    if (this.ui.dashCdFill && this.ui.dashCdText) {
+      const max = Math.max(0.001, p.dashCdMax || (5 * (p.stats?.dashCdMult ?? 1)));
+      const t = clamp(1 - (p.dashCd / max), 0, 1);
+      this.ui.dashCdFill.style.width = `${t * 100}%`;
+      this.ui.dashCdText.textContent = (p.dashCd > 0.05) ? `${Math.ceil(p.dashCd)}s` : "READY";
+    }
+    if (this.ui.aegisCdFill && this.ui.aegisCdText) {
+      const max = Math.max(0.001, p.aegisCdMax || (30 * (p.stats?.skillCdMult ?? 1)));
+      const t = clamp(1 - (p.aegisCd / max), 0, 1);
+      this.ui.aegisCdFill.style.width = `${t * 100}%`;
+      this.ui.aegisCdText.textContent = (p.aegisCd > 0.05) ? `${Math.ceil(p.aegisCd)}s` : "READY";
+    }
+
+    // weapon HUD highlight (no reflow)
+    if (this.ui.hudWeapons) {
+      this.ui.hudWeapons.querySelectorAll("button[data-weapon]").forEach(btn => {
+        const w = btn.dataset.weapon;
+        btn.classList.toggle("is-active", w === p.weapon);
+        btn.classList.toggle("is-locked", !(p.weapons && p.weapons.has(w)));
+      });
+    }
 
     // update records live
     if (p.score > (this.meta.bestScore || 0)) this.meta.bestScore = p.score;

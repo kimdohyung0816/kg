@@ -32,9 +32,15 @@ export const ITEMS = [
 // 무기 언락/빌드 코어
 { key:"unlock_shotgun", rarity:"common", title:"Unlock: Shotgun", tag:"Weapon", desc:"샷건 사용 가능(2키)", apply(p){ p.unlockWeapon("shotgun"); } },
 { key:"unlock_rail", rarity:"rare", title:"Unlock: Rail Beam", tag:"Weapon", desc:"레일빔 사용 가능(3키)", apply(p){ p.unlockWeapon("rail"); } },
-{ key:"pellets", rarity:"rare", title:"Pellets +2", tag:"Shotgun", desc:"샷건 펠릿 증가(폭딜 시너지)", apply(p){ p.stats.pellets += 2; } },
-{ key:"shot_spread", rarity:"common", title:"Shotgun Spread -12%", tag:"Shotgun", desc:"샷건 퍼짐 감소(집탄)", apply(p){ p.stats.shotgunSpread *= 0.88; } },
-{ key:"rail_width", rarity:"epic", title:"Rail Width +8", tag:"Rail", desc:"레일빔 굵기 증가(라인 클리어)", apply(p){ p.stats.railWidth += 8; } },
+{ key:"unlock_crossbow", rarity:"rare", title:"Unlock: Crossbow", tag:"Weapon", desc:"크로스보우 사용 가능(4키)", apply(p){ p.unlockWeapon("crossbow"); } },
+
+{ key:"pellets", rarity:"rare", title:"Pellets +2", tag:"Shotgun", desc:"샷건 펠릿 증가(폭딜 시너지)", requires:["shotgun"], apply(p){ p.stats.pellets += 2; } },
+{ key:"shot_spread", rarity:"common", title:"Shotgun Spread -12%", tag:"Shotgun", desc:"샷건 퍼짐 감소(집탄)", requires:["shotgun"], apply(p){ p.stats.shotgunSpread *= 0.88; } },
+{ key:"rail_width", rarity:"epic", title:"Rail Width +8", tag:"Rail", desc:"레일빔 굵기 증가(라인 클리어)", requires:["rail"], apply(p){ p.stats.railWidth += 8; } },
+
+{ key:"xbow_bolts", rarity:"common", title:"Bolts +1", tag:"Crossbow", desc:"크로스보우 볼트 1발 추가", requires:["crossbow"], apply(p){ p.stats.xbowBolts = Math.min(3, (p.stats.xbowBolts||1) + 1); } },
+{ key:"xbow_draw", rarity:"rare", title:"Draw Speed +20%", tag:"Crossbow", desc:"크로스보우 발사 속도 증가", requires:["crossbow"], apply(p){ p.stats.xbowRate = (p.stats.xbowRate||1) * 1.20; } },
+{ key:"xbow_pierce", rarity:"rare", title:"Bolt Pierce +1", tag:"Crossbow", desc:"크로스보우 볼트 관통 +1", requires:["crossbow"], apply(p){ p.stats.xbowPierce = Math.min(3, (p.stats.xbowPierce||0) + 1); } },
 
 
 // 오브(자동 타격)
@@ -46,9 +52,10 @@ export const ITEMS = [
 { key:"xp", rarity:"rare", title:"XP Gain +20%", tag:"QoL", desc:"획득 XP 증가", apply(p){ p.stats.xpMult *= 1.20; } },
 
 
-// 스킬(에너지) 강화
-{ key:"energy", rarity:"common", title:"Energy Regen +25%", tag:"Skill", desc:"스킬 에너지 회복 속도 증가", apply(p){ p.stats.energyRegen *= 1.25; } },
-{ key:"nova", rarity:"rare", title:"Nova Damage +35%", tag:"Skill", desc:"노바(우클릭) 피해 증가", apply(p){ p.stats.novaDmg *= 1.35; } },
+// 스킬: Aegis(우클릭 무적)
+{ key:"aegis_cd", rarity:"rare", title:"Aegis Cooldown -20%", tag:"Skill", desc:"우클릭 무적 스킬 쿨타임 감소", apply(p){ p.stats.skillCdMult *= 0.80; } },
+{ key:"aegis_dur", rarity:"epic", title:"Aegis Duration +0.4s", tag:"Skill", desc:"우클릭 무적 스킬 지속시간 증가", apply(p){ p.stats.aegisDur = (p.stats.aegisDur||2.0) + 0.4; } },
+{ key:"cdr", rarity:"epic", title:"Cooldowns -15%", tag:"Skill", desc:"대시/무적 쿨타임 동시 감소", apply(p){ p.stats.dashCdMult *= 0.85; p.stats.skillCdMult *= 0.85; } },
 ];
 
 
@@ -66,6 +73,24 @@ return "epic";
 
 
 export function rollChoices(game, n = 3) {
+  const p = game.player;
+
+  function eligible(it) {
+    // 무기 관련 업그레이드는 "가지고 있는 것"만 등장
+    if (it.requires && Array.isArray(it.requires)) {
+      for (const req of it.requires) {
+        if (!p.hasWeapon(req)) return false;
+      }
+    }
+
+    // 이미 언락된 무기는 언락 카드 제외
+    if (it.key === "unlock_shotgun" && p.hasWeapon("shotgun")) return false;
+    if (it.key === "unlock_rail" && p.hasWeapon("rail")) return false;
+    if (it.key === "unlock_crossbow" && p.hasWeapon("crossbow")) return false;
+
+    return true;
+  }
+
 // 중복 키 방지
 const picks = [];
 const used = new Set();
@@ -74,7 +99,7 @@ const used = new Set();
 let guard = 0;
 while (picks.length < n && guard++ < 200) {
 const rar = rollRarity();
-const pool = ITEMS.filter(it => it.rarity === rar);
+const pool = ITEMS.filter(it => it.rarity === rar && eligible(it));
 
 
 const it = pool[Math.floor(Math.random() * pool.length)];
@@ -82,9 +107,7 @@ if (!it) continue;
 if (used.has(it.key)) continue;
 
 
-// 이미 언락된 무기 언락은 제외
-if (it.key === "unlock_shotgun" && game.player.hasWeapon("shotgun")) continue;
-if (it.key === "unlock_rail" && game.player.hasWeapon("rail")) continue;
+if (!eligible(it)) continue;
 
 
 used.add(it.key);
@@ -93,12 +116,11 @@ picks.push(it);
 
 
 // 부족하면 아무거나 채우기
-const fallback = ITEMS.filter(it => !used.has(it.key));
+const fallback = ITEMS.filter(it => !used.has(it.key) && eligible(it));
 while (picks.length < n && fallback.length) {
 const it = fallback.splice(Math.floor(Math.random() * fallback.length), 1)[0];
 if (!it) break;
-if (it.key === "unlock_shotgun" && game.player.hasWeapon("shotgun")) continue;
-if (it.key === "unlock_rail" && game.player.hasWeapon("rail")) continue;
+if (!eligible(it)) continue;
 picks.push(it);
 }
 

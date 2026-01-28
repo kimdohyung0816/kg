@@ -42,6 +42,21 @@ const ui = {
   btnStart: document.getElementById("btnStart"),
   btnResume: document.getElementById("btnResume"),
   btnRestart: document.getElementById("btnRestart"),
+
+  // in-game quick HUD
+  hudWeapons: document.getElementById("hudWeapons"),
+  dashCdFill: document.getElementById("dashCdFill"),
+  dashCdText: document.getElementById("dashCdText"),
+  aegisCdFill: document.getElementById("aegisCdFill"),
+  aegisCdText: document.getElementById("aegisCdText"),
+
+  // reset confirm
+  btnReset: document.getElementById("btnReset"),
+  confirm: document.getElementById("confirm"),
+  confirmTitle: document.getElementById("confirmTitle"),
+  confirmDesc: document.getElementById("confirmDesc"),
+  confirmNo: document.getElementById("confirmNo"),
+  confirmYes: document.getElementById("confirmYes"),
 };
 
 game.bindUI(ui);
